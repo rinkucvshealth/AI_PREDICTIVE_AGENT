@@ -1,0 +1,12 @@
+node_modules/
+.git/
+.env
+.env.*
+*.log
+.DS_Store
+.vscode/
+.idea/
+src/
+tsconfig.json
+*.md
+.gitignore
