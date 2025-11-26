@@ -17,7 +17,15 @@
     "node": "18.x",
     "npm": "9.x"
   },
-  "keywords": ["sac", "predictive", "forecasting", "ai", "openai", "planning", "analytics"],
+  "keywords": [
+    "sac",
+    "predictive",
+    "forecasting",
+    "ai",
+    "openai",
+    "planning",
+    "analytics"
+  ],
   "author": "CVS Health SAP AI Team",
   "license": "UNLICENSED",
   "dependencies": {
