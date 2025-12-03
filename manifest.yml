@@ -11,17 +11,14 @@ applications:
   env:
     NPM_CONFIG_PRODUCTION: false
     NODE_ENV: production
-    # SAC Connection - UPDATE BEFORE DEPLOYING
+    # Basic Configuration
     SAC_TENANT_URL: https://cvs-pharmacy-q.us10.hcs.cloud.sap
-    SAC_USERNAME: <YOUR_SAC_USERNAME>
-    SAC_PASSWORD: <YOUR_SAC_PASSWORD>
-    # SAC Model Configuration
     SAC_MODEL_ID: PRDA_PL_PLAN
-    SAC_MULTI_ACTION_ID: <YOUR_MULTI_ACTION_ID>
-    SAC_STORY_ID: <YOUR_STORY_ID_OPTIONAL>
-    # OpenAI API
-    OPENAI_API_KEY: <YOUR_OPENAI_API_KEY>
-    # Server Configuration
-    API_KEY: <YOUR_API_KEY>
     ALLOWED_ORIGIN: https://cvs-pharmacy-q.us10.hcs.cloud.sap
     LOG_LEVEL: info
+    # Placeholder credentials - Set via: cf set-env ai-predictive-agent <VAR> <VALUE>
+    SAC_USERNAME: placeholder
+    SAC_PASSWORD: placeholder
+    OPENAI_API_KEY: placeholder
+    API_KEY: placeholder
+    SAC_MULTI_ACTION_ID: placeholder
