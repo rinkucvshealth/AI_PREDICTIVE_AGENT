@@ -42,7 +42,7 @@ export class SACClient {
       logger.info('Testing SAC connection...');
       
       // Try to access the API endpoint (adjust based on actual SAC API)
-      const response = await this.axiosClient.get('/api/v1/models');
+      await this.axiosClient.get('/api/v1/models');
       
       logger.info('SAC connection successful');
       return true;

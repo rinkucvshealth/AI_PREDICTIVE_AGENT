@@ -94,7 +94,7 @@ router.post('/query', async (req: express.Request, res: express.Response) => {
  * GET /api/forecast/test-sac
  * Test SAC connectivity
  */
-router.get('/test-sac', async (req: express.Request, res: express.Response) => {
+router.get('/test-sac', async (_req: express.Request, res: express.Response) => {
   try {
     logger.info('Testing SAC connection...');
     
@@ -121,7 +121,7 @@ router.get('/test-sac', async (req: express.Request, res: express.Response) => {
  * GET /api/forecast/model-info
  * Get Planning Model information
  */
-router.get('/model-info', async (req: express.Request, res: express.Response) => {
+router.get('/model-info', async (_req: express.Request, res: express.Response) => {
   try {
     logger.info('Fetching model info...');
     
