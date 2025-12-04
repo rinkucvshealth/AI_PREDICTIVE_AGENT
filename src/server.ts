@@ -44,9 +44,16 @@ const apiKeyAuth = (req: express.Request, res: express.Response, next: express.N
     return next();
   }
 
+  // Skip authentication if API_KEY is not configured or is placeholder
+  if (!config.server.apiKey || config.server.apiKey === 'placeholder' || config.server.apiKey === '') {
+    logger.debug('API key authentication disabled (no API_KEY configured)');
+    return next();
+  }
+
+  // If API key is configured, validate it
   const apiKey = req.headers['x-api-key'] as string;
   if (!apiKey || apiKey !== config.server.apiKey) {
-    logger.warn(`Unauthorized API access attempt from ${req.ip}`);
+    logger.warn(`Unauthorized API access attempt from ${req.ip}, API Key: ${apiKey ? 'Invalid' : 'Missing'}`);
     return res.status(401).json({
       success: false,
       error: 'Unauthorized: Invalid API key',
