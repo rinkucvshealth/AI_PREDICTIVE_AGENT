@@ -1,0 +1,50 @@
+{
+  "id": "com.cvshealth.aiforecast",
+  "version": "1.0.0",
+  "name": "AI Forecast Agent",
+  "description": "Natural language interface for SAC forecasting with AI-powered query interpretation",
+  "newInstancePrefix": "AIForecast",
+  "icon": "sap-icon://decision-tree",
+  "vendor": "CVS Health",
+  "eula": "",
+  "license": "",
+  "webcomponents": [
+    {
+      "kind": "main",
+      "tag": "com-cvshealth-aiforecast",
+      "url": "https://ai-predictive-agent.cfapps.us10.hana.ondemand.com/widget/sac-widget.js",
+      "integrity": "",
+      "ignoreIntegrity": true
+    }
+  ],
+  "properties": {
+    "apiEndpoint": {
+      "type": "string",
+      "description": "API endpoint URL",
+      "default": "https://ai-predictive-agent.cfapps.us10.hana.ondemand.com/api/forecast/query"
+    },
+    "apiKey": {
+      "type": "string",
+      "description": "API Key for authentication",
+      "default": ""
+    },
+    "width": {
+      "type": "integer",
+      "default": 400
+    },
+    "height": {
+      "type": "integer",
+      "default": 600
+    }
+  },
+  "methods": {
+    "refresh": {
+      "description": "Refresh the widget data"
+    }
+  },
+  "events": {
+    "onForecastComplete": {
+      "description": "Triggered when forecast is successfully created"
+    }
+  }
+}

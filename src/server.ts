@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import path from 'path';
 import { config } from './config';
 import { logger } from './utils/logger';
 import forecastRouter from './routes/forecast';
@@ -60,6 +61,16 @@ app.use('/api/', apiKeyAuth);
 
 // API routes
 app.use('/api/forecast', forecastRouter);
+
+// Serve widget files (no authentication required for SAC to load them)
+app.use('/widget', express.static(path.join(__dirname, '../public/widget'), {
+  setHeaders: (res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    res.set('Content-Type', 'application/javascript');
+  }
+}));
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
