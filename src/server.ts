@@ -63,14 +63,50 @@ app.use('/api/', apiKeyAuth);
 app.use('/api/forecast', forecastRouter);
 
 // Serve widget files (no authentication required for SAC to load them)
-app.use('/widget', express.static(path.join(__dirname, '../public/widget'), {
-  setHeaders: (res) => {
+// In production (CF), files are in ../public relative to dist/
+// In development, files are in ./public relative to src/
+const widgetPath = path.join(__dirname, '../public/widget');
+logger.info(`Widget files path: ${widgetPath}`);
+
+app.use('/widget', express.static(widgetPath, {
+  setHeaders: (res, filePath) => {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
-    res.set('Content-Type', 'application/javascript');
+    
+    // Set correct content type based on file extension
+    if (filePath.endsWith('.json')) {
+      res.set('Content-Type', 'application/json');
+    } else if (filePath.endsWith('.js')) {
+      res.set('Content-Type', 'application/javascript');
+    }
+    
+    logger.debug(`Serving widget file: ${filePath}`);
   }
 }));
+
+// Debug endpoint to check if widget files exist
+app.get('/widget/debug', (_req, res) => {
+  const fs = require('fs');
+  const widgetDir = path.join(__dirname, '../public/widget');
+  
+  try {
+    const files = fs.readdirSync(widgetDir);
+    res.json({
+      widgetPath: widgetDir,
+      filesExist: files,
+      __dirname: __dirname,
+      cwd: process.cwd()
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      error: error.message,
+      widgetPath: widgetDir,
+      __dirname: __dirname,
+      cwd: process.cwd()
+    });
+  }
+});
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
