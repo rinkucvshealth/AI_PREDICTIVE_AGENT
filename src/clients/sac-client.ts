@@ -11,19 +11,17 @@ export class SACClient {
   private tenantUrl: string;
   private modelId: string;
   private multiActionId: string;
+  private accessToken: string | null = null;
+  private tokenExpiry: number = 0;
 
   constructor() {
     this.tenantUrl = config.sac.tenantUrl;
     this.modelId = config.sac.modelId;
     this.multiActionId = config.sac.multiActionId;
 
-    // Create axios client with SAC credentials
+    // Create axios client for SAC API calls
     this.axiosClient = axios.create({
       baseURL: this.tenantUrl,
-      auth: {
-        username: config.sac.username,
-        password: config.sac.password,
-      },
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -31,7 +29,66 @@ export class SACClient {
       timeout: 60000, // 60 second timeout for multi-actions
     });
 
+    // Add request interceptor to inject OAuth token
+    this.axiosClient.interceptors.request.use(async (config) => {
+      const token = await this.getAccessToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+
     logger.info(`SAC Client initialized for tenant: ${this.tenantUrl}`);
+  }
+
+  /**
+   * Get OAuth access token using client credentials flow
+   */
+  private async getAccessToken(): Promise<string | null> {
+    try {
+      // Check if token is still valid (with 5 minute buffer)
+      if (this.accessToken && Date.now() < this.tokenExpiry - 300000) {
+        return this.accessToken;
+      }
+
+      logger.info('Fetching new OAuth access token from SAC');
+
+      // OAuth token endpoint (adjust based on your SAC tenant configuration)
+      const tokenUrl = `${this.tenantUrl}/oauth/token`;
+      
+      const response = await axios.post(
+        tokenUrl,
+        new URLSearchParams({
+          grant_type: 'client_credentials',
+        }),
+        {
+          auth: {
+            username: config.sac.clientId,
+            password: config.sac.clientSecret,
+          },
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        }
+      );
+
+      this.accessToken = response.data.access_token;
+      // Set expiry time (default to 3600 seconds if not provided)
+      const expiresIn = response.data.expires_in || 3600;
+      this.tokenExpiry = Date.now() + (expiresIn * 1000);
+
+      logger.info('Successfully obtained OAuth access token');
+      return this.accessToken;
+    } catch (error: any) {
+      logger.error('Failed to get OAuth access token:', error.message);
+      if (error.response) {
+        logger.error('OAuth error response:', {
+          status: error.response.status,
+          data: error.response.data,
+        });
+      }
+      return null;
+    }
   }
 
   /**
@@ -61,17 +118,21 @@ export class SACClient {
     try {
       logger.info(`Triggering SAC Multi-Action: ${this.multiActionId}`, request.parameters);
 
-      // SAC Multi-Action API endpoint (adjust based on actual SAC API)
-      // This is a placeholder - actual endpoint may vary
-      const endpoint = `/api/v1/multiactions/${this.multiActionId}/trigger`;
+      // SAC Multi-Action API endpoint format for Planning Models
+      const endpoint = `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`;
 
-      const response = await this.axiosClient.post(endpoint, request);
+      // Format request body for SAC Multi-Action
+      const requestBody = {
+        parameterValues: request.parameters,
+      };
+
+      const response = await this.axiosClient.post(endpoint, requestBody);
 
       logger.info('Multi-Action triggered successfully:', response.data);
 
       return {
         status: 'success',
-        executionId: response.data.executionId || response.data.id,
+        executionId: response.data.runId || response.data.id || 'unknown',
         message: 'Multi-Action execution started',
       };
     } catch (error: any) {
@@ -80,7 +141,10 @@ export class SACClient {
       if (error.response) {
         logger.error('SAC API Error:', {
           status: error.response.status,
+          statusText: error.response.statusText,
           data: error.response.data,
+          headers: error.response.headers,
+          url: error.config?.url,
         });
       }
 

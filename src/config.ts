@@ -8,8 +8,8 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 function validateConfig(): Config {
   const requiredEnvVars = [
     'SAC_TENANT_URL',
-    'SAC_USERNAME',
-    'SAC_PASSWORD',
+    'SAC_CLIENT_ID',
+    'SAC_CLIENT_SECRET',
     'SAC_MODEL_ID',
     'OPENAI_API_KEY',
     'API_KEY'
@@ -24,10 +24,10 @@ function validateConfig(): Config {
   return {
     sac: {
       tenantUrl: process.env['SAC_TENANT_URL'] || 'https://cvs-pharmacy-q.us10.hcs.cloud.sap',
-      username: process.env['SAC_USERNAME'] || 'placeholder',
-      password: process.env['SAC_PASSWORD'] || 'placeholder',
+      clientId: process.env['SAC_CLIENT_ID'] || 'placeholder',
+      clientSecret: process.env['SAC_CLIENT_SECRET'] || 'placeholder',
       modelId: process.env['SAC_MODEL_ID'] || 'PRDA_PL_PLAN',
-      multiActionId: process.env['SAC_MULTI_ACTION_ID'] || 'placeholder',
+      multiActionId: process.env['SAC_MULTI_ACTION_ID'] || 'E5280280114D3785596849C3D321B820',
       storyId: process.env['SAC_STORY_ID'],
     },
     openai: {

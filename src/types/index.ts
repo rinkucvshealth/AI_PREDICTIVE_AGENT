@@ -49,17 +49,15 @@ export interface SACMultiActionResponse {
 
 export interface SACAuthConfig {
   tenantUrl: string;
-  username: string;
-  password: string;
-  clientId?: string;
-  clientSecret?: string;
+  clientId: string;
+  clientSecret: string;
 }
 
 export interface Config {
   sac: {
     tenantUrl: string;
-    username: string;
-    password: string;
+    clientId: string;
+    clientSecret: string;
     modelId: string;
     multiActionId: string;
     storyId?: string;
