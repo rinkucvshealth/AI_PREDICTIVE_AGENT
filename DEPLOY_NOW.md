@@ -32,7 +32,11 @@ cf push
 Set your real credentials via CF CLI:
 
 ```bash
-# SAC Credentials
+# SAC OAuth Credentials (use single quotes for values with ! or | characters)
+cf set-env ai-predictive-agent SAC_CLIENT_ID 'your_oauth_client_id'
+cf set-env ai-predictive-agent SAC_CLIENT_SECRET 'your_oauth_client_secret'
+
+# SAC Basic Auth Credentials (alternative to OAuth)
 cf set-env ai-predictive-agent SAC_USERNAME "your_actual_username"
 cf set-env ai-predictive-agent SAC_PASSWORD "your_actual_password"
 

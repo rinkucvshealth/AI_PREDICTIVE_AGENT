@@ -17,6 +17,8 @@ applications:
     ALLOWED_ORIGIN: https://cvs-pharmacy-q.us10.hcs.cloud.sap
     LOG_LEVEL: info
     # Placeholder credentials - Set via: cf set-env ai-predictive-agent <VAR> <VALUE>
+    SAC_CLIENT_ID: placeholder
+    SAC_CLIENT_SECRET: placeholder
     SAC_USERNAME: placeholder
     SAC_PASSWORD: placeholder
     OPENAI_API_KEY: placeholder
