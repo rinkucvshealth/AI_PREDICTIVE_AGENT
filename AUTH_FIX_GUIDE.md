@@ -122,18 +122,16 @@ After redeployment, test the application:
 
 ---
 
-## Alternative: Token URL Configuration
+## OAuth Token URL
 
-If the OAuth token endpoint is different from the default, you may need to adjust the token URL in `src/clients/sac-client.ts`:
+The application automatically detects the correct OAuth token endpoint based on your SAC tenant URL.
 
-Current default:
-```typescript
-const tokenUrl = `${this.tenantUrl}/oauth/token`;
-```
+For tenant: `https://cvs-pharmacy-q.us10.hcs.cloud.sap`
+The OAuth token URL is: `https://cvs-pharmacy-q.authentication.us10.hana.ondemand.com/oauth/token`
 
-If your SAC tenant uses a different OAuth endpoint, update to:
-```typescript
-const tokenUrl = `https://your-sac-tenant.authentication.us10.hana.ondemand.com/oauth/token`;
+If you need to override this, set the `SAC_OAUTH_TOKEN_URL` environment variable:
+```bash
+cf set-env ai-predictive-agent SAC_OAUTH_TOKEN_URL "https://your-custom-oauth-endpoint/oauth/token"
 ```
 
 ---

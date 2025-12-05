@@ -53,8 +53,17 @@ export class SACClient {
 
       logger.info('Fetching new OAuth access token from SAC');
 
-      // OAuth token endpoint (adjust based on your SAC tenant configuration)
-      const tokenUrl = `${this.tenantUrl}/oauth/token`;
+      // SAC OAuth token endpoint - extract tenant and region from tenant URL
+      // e.g., https://cvs-pharmacy-q.us10.hcs.cloud.sap
+      // becomes: https://cvs-pharmacy-q.authentication.us10.hana.ondemand.com/oauth/token
+      const tenantMatch = this.tenantUrl.match(/https:\/\/([^.]+)\.([^.]+)\./);
+      const tenantName = tenantMatch ? tenantMatch[1] : '';
+      const region = tenantMatch ? tenantMatch[2] : 'us10';
+      
+      const tokenUrl = config.sac.oauthTokenUrl || 
+        `https://${tenantName}.authentication.${region}.hana.ondemand.com/oauth/token`;
+      
+      logger.info(`Using OAuth token endpoint: ${tokenUrl}`);
       
       const response = await axios.post(
         tokenUrl,
