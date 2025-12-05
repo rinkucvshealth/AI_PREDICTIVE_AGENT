@@ -65,18 +65,18 @@ export class SACClient {
       
       logger.info(`Using OAuth token endpoint: ${tokenUrl}`);
       
+      // Create Basic Auth header manually for OAuth client credentials
+      const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
+      
       const response = await axios.post(
         tokenUrl,
         new URLSearchParams({
           grant_type: 'client_credentials',
         }),
         {
-          auth: {
-            username: config.sac.clientId,
-            password: config.sac.clientSecret,
-          },
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${credentials}`,
           },
         }
       );
