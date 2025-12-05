@@ -16,11 +16,6 @@ applications:
     SAC_MODEL_ID: PRDA_PL_PLAN
     ALLOWED_ORIGIN: https://cvs-pharmacy-q.us10.hcs.cloud.sap
     LOG_LEVEL: info
-    # Placeholder credentials - Set via: cf set-env ai-predictive-agent <VAR> <VALUE>
-    SAC_CLIENT_ID: placeholder
-    SAC_CLIENT_SECRET: placeholder
-    SAC_USERNAME: placeholder
-    SAC_PASSWORD: placeholder
-    OPENAI_API_KEY: placeholder
-    API_KEY: placeholder
-    SAC_MULTI_ACTION_ID: placeholder
+    # Credentials are set via environment variables
+    # Use: cf set-env ai-predictive-agent <VAR> <VALUE>
+    SAC_MULTI_ACTION_ID: E5280280114D3785596849C3D321B820
