@@ -13,6 +13,8 @@ export class SACClient {
   private multiActionId: string;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
+  private csrfToken: string | null = null;
+  private cookies: string[] = [];
 
   constructor() {
     this.tenantUrl = config.sac.tenantUrl;
@@ -27,6 +29,7 @@ export class SACClient {
         'Accept': 'application/json',
       },
       timeout: 60000, // 60 second timeout for multi-actions
+      withCredentials: true, // Enable cookie handling
     });
 
     // Add request interceptor to inject OAuth token
@@ -273,6 +276,45 @@ export class SACClient {
   }
 
   /**
+   * Fetch CSRF token from SAC
+   * SAC requires CSRF tokens for POST/PUT/DELETE operations
+   */
+  private async fetchCsrfToken(): Promise<string> {
+    try {
+      logger.info('🔒 Fetching CSRF token from SAC...');
+      
+      // Make a HEAD or GET request to fetch CSRF token
+      // SAC returns CSRF token in the x-csrf-token header when requested with x-csrf-token: Fetch
+      const response = await this.axiosClient.get('/api/v1/dataimport/planningModel', {
+        headers: {
+          'x-csrf-token': 'Fetch',
+        },
+      });
+
+      const csrfToken = response.headers['x-csrf-token'];
+      const setCookieHeader = response.headers['set-cookie'];
+
+      if (!csrfToken) {
+        throw new Error('CSRF token not found in response headers');
+      }
+
+      // Store cookies for subsequent requests
+      if (setCookieHeader) {
+        this.cookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+        logger.info(`  ✓ Stored ${this.cookies.length} cookie(s) for session`);
+      }
+
+      this.csrfToken = csrfToken;
+      logger.info(`  ✓ CSRF token acquired: ${csrfToken.substring(0, 20)}...`);
+      
+      return csrfToken;
+    } catch (error: any) {
+      logger.error('Failed to fetch CSRF token:', error.message);
+      throw new SACError(`Failed to fetch CSRF token: ${error.message}`);
+    }
+  }
+
+  /**
    * Test connection to SAC
    */
   async testConnection(): Promise<boolean> {
@@ -304,6 +346,9 @@ export class SACClient {
       logger.info(`Model ID: ${this.modelId}`);
       logger.info(`Parameters:`, request.parameters);
 
+      // Fetch CSRF token before making the POST request
+      const csrfToken = await this.fetchCsrfToken();
+
       // Try the Planning Model-specific endpoint first (recommended for planning models)
       // If that fails with 404, try the generic multi-action endpoint
       
@@ -315,8 +360,21 @@ export class SACClient {
       logger.info(`Endpoint (Primary): ${this.tenantUrl}${endpoint}`);
       logger.info(`Request Body:`, JSON.stringify(requestBody, null, 2));
 
+      // Prepare headers with CSRF token and cookies
+      const headers: any = {
+        'x-csrf-token': csrfToken,
+      };
+
+      // Add cookies to the request
+      if (this.cookies.length > 0) {
+        headers['Cookie'] = this.cookies.map(cookie => {
+          // Extract just the key=value part before the first semicolon
+          return cookie.split(';')[0];
+        }).join('; ');
+      }
+
       try {
-        const response = await this.axiosClient.post(endpoint, requestBody);
+        const response = await this.axiosClient.post(endpoint, requestBody, { headers });
         
         logger.info('✅ Multi-Action triggered successfully (Primary endpoint)');
         logger.info('Response:', response.data);
@@ -338,7 +396,7 @@ export class SACClient {
           logger.info(`Endpoint (Alternative): ${this.tenantUrl}${endpoint}`);
           logger.info(`Request Body:`, JSON.stringify(requestBody, null, 2));
           
-          const response = await this.axiosClient.post(endpoint, requestBody);
+          const response = await this.axiosClient.post(endpoint, requestBody, { headers });
           
           logger.info('✅ Multi-Action triggered successfully (Alternative endpoint)');
           logger.info('Response:', response.data);
@@ -376,6 +434,8 @@ export class SACClient {
             ...error.config?.headers,
             Authorization: error.config?.headers?.Authorization ? 
               error.config.headers.Authorization.substring(0, 30) + '...' : 'Not set',
+            'x-csrf-token': error.config?.headers?.['x-csrf-token'] ? 
+              error.config.headers['x-csrf-token'].substring(0, 20) + '...' : 'Not set',
           },
         });
       } else if (error.request) {
