@@ -278,39 +278,60 @@ export class SACClient {
   /**
    * Fetch CSRF token from SAC
    * SAC requires CSRF tokens for POST/PUT/DELETE operations
+   * Tries multiple endpoints as fallback
    */
-  private async fetchCsrfToken(): Promise<string> {
+  private async fetchCsrfToken(): Promise<string | null> {
     try {
       logger.info('🔒 Fetching CSRF token from SAC...');
       
-      // Make a HEAD or GET request to fetch CSRF token
-      // SAC returns CSRF token in the x-csrf-token header when requested with x-csrf-token: Fetch
-      const response = await this.axiosClient.get('/api/v1/dataimport/planningModel', {
-        headers: {
-          'x-csrf-token': 'Fetch',
-        },
-      });
+      // Try multiple endpoints to fetch CSRF token
+      const csrfEndpoints = [
+        `/api/v1/dataimport/planningModel/${this.modelId}`,
+        '/api/v1/dataimport/planningModel',
+        '/api/v1/models',
+        `/api/v1/multiactions/${this.multiActionId}`,
+      ];
 
-      const csrfToken = response.headers['x-csrf-token'];
-      const setCookieHeader = response.headers['set-cookie'];
+      for (const endpoint of csrfEndpoints) {
+        try {
+          logger.info(`  → Trying CSRF endpoint: ${endpoint}`);
+          
+          // Make a HEAD or GET request to fetch CSRF token
+          // SAC returns CSRF token in the x-csrf-token header when requested with x-csrf-token: Fetch
+          const response = await this.axiosClient.get(endpoint, {
+            headers: {
+              'x-csrf-token': 'Fetch',
+            },
+            validateStatus: (status) => status < 500, // Accept 4xx responses
+          });
 
-      if (!csrfToken) {
-        throw new Error('CSRF token not found in response headers');
+          const csrfToken = response.headers['x-csrf-token'];
+          const setCookieHeader = response.headers['set-cookie'];
+
+          if (csrfToken) {
+            // Store cookies for subsequent requests
+            if (setCookieHeader) {
+              this.cookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+              logger.info(`  ✓ Stored ${this.cookies.length} cookie(s) for session`);
+            }
+
+            this.csrfToken = csrfToken;
+            logger.info(`  ✓ CSRF token acquired: ${csrfToken.substring(0, 20)}...`);
+            
+            return csrfToken;
+          }
+        } catch (error: any) {
+          logger.warn(`  ✗ Failed to fetch CSRF from ${endpoint}: ${error.message}`);
+          // Continue to next endpoint
+        }
       }
 
-      // Store cookies for subsequent requests
-      if (setCookieHeader) {
-        this.cookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
-        logger.info(`  ✓ Stored ${this.cookies.length} cookie(s) for session`);
-      }
-
-      this.csrfToken = csrfToken;
-      logger.info(`  ✓ CSRF token acquired: ${csrfToken.substring(0, 20)}...`);
-      
-      return csrfToken;
+      logger.warn('⚠️  Could not fetch CSRF token from any endpoint');
+      logger.warn('Will attempt request without CSRF token');
+      return null;
     } catch (error: any) {
       logger.error('Failed to fetch CSRF token:', error.message);
-      throw new SACError(`Failed to fetch CSRF token: ${error.message}`);
+      return null;
     }
   }
 
@@ -346,7 +367,7 @@ export class SACClient {
       logger.info(`Model ID: ${this.modelId}`);
       logger.info(`Parameters:`, request.parameters);
 
-      // Fetch CSRF token before making the POST request
+      // Fetch CSRF token before making the POST request (optional)
       const csrfToken = await this.fetchCsrfToken();
 
       // Try the Planning Model-specific endpoint first (recommended for planning models)
@@ -360,10 +381,15 @@ export class SACClient {
       logger.info(`Endpoint (Primary): ${this.tenantUrl}${endpoint}`);
       logger.info(`Request Body:`, JSON.stringify(requestBody, null, 2));
 
-      // Prepare headers with CSRF token and cookies
-      const headers: any = {
-        'x-csrf-token': csrfToken,
-      };
+      // Prepare headers with CSRF token and cookies (if available)
+      const headers: any = {};
+      
+      if (csrfToken) {
+        headers['x-csrf-token'] = csrfToken;
+        logger.info(`  ✓ Using CSRF token in request`);
+      } else {
+        logger.warn(`  ⚠️  No CSRF token available, proceeding without it`);
+      }
 
       // Add cookies to the request
       if (this.cookies.length > 0) {
@@ -371,6 +397,7 @@ export class SACClient {
           // Extract just the key=value part before the first semicolon
           return cookie.split(';')[0];
         }).join('; ');
+        logger.info(`  ✓ Using ${this.cookies.length} session cookie(s)`);
       }
 
       try {
@@ -409,7 +436,32 @@ export class SACClient {
           };
         }
         
-        // If not 404, re-throw the original error
+        // If we get 403 and have CSRF token, try without CSRF token as fallback
+        if (primaryError.response?.status === 403 && csrfToken) {
+          logger.warn('Primary endpoint returned 403 with CSRF token, trying without CSRF...');
+          
+          // Remove CSRF token and cookies
+          const headersWithoutCsrf: any = {};
+          
+          try {
+            const response = await this.axiosClient.post(endpoint, requestBody, { headers: headersWithoutCsrf });
+            
+            logger.info('✅ Multi-Action triggered successfully (without CSRF token)');
+            logger.info('Response:', response.data);
+            logger.info('========================================');
+
+            return {
+              status: 'success',
+              executionId: response.data.runId || response.data.id || 'unknown',
+              message: 'Multi-Action execution started',
+            };
+          } catch (noCsrfError: any) {
+            logger.error('Failed even without CSRF token');
+            // Fall through to throw the original error
+          }
+        }
+        
+        // If not 404 or 403, or if fallbacks failed, re-throw the original error
         throw primaryError;
       }
     } catch (error: any) {
