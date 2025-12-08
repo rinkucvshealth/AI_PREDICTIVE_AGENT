@@ -246,6 +246,69 @@ export class SACClient {
   }
 
   /**
+   * Decode JWT token to analyze scopes and claims
+   */
+  private decodeJWT(token: string): any {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        return null;
+      }
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+      return payload;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Analyze token scopes to detect permission issues
+   */
+  private analyzeTokenScopes(token: string): void {
+    try {
+      const payload = this.decodeJWT(token);
+      if (!payload) return;
+
+      const scopes = payload.scope || [];
+      const scopeArray = Array.isArray(scopes) ? scopes : scopes.split(' ');
+
+      // Check for Multi-Action execution scopes
+      const hasMultiActionScope = scopeArray.some((s: string) => 
+        s.includes('multiaction') || 
+        s.includes('planning.write') || 
+        s.includes('fpa.planning') ||
+        s.includes('data.write')
+      );
+
+      // Detect XSUAA-only scopes (common issue)
+      const hasOnlyXSUAAScopes = scopeArray.every((s: string) => 
+        s.includes('uaa.') || 
+        s.includes('approuter') || 
+        s.includes('dmi-api-proxy')
+      );
+
+      if (!hasMultiActionScope && hasOnlyXSUAAScopes) {
+        logger.warn('');
+        logger.warn('⚠️  WARNING: Token Analysis Detected Potential Issue ⚠️');
+        logger.warn('━'.repeat(70));
+        logger.warn('Token has XSUAA scopes but lacks Multi-Action execution scopes.');
+        logger.warn('This will cause 401 Unauthorized errors on Multi-Action execution.');
+        logger.warn('');
+        logger.warn('Current Scopes:', scopeArray.join(', '));
+        logger.warn('');
+        logger.warn('🔧 SOLUTION: Create SAC-native OAuth client');
+        logger.warn('   Location: SAC → System → Administration → OAuth Clients');
+        logger.warn('   Required Scopes: Planning API, Multi-Action Execution');
+        logger.warn('   Documentation: See AUTHORIZATION_ROOT_CAUSE_ANALYSIS.md');
+        logger.warn('━'.repeat(70));
+        logger.warn('');
+      }
+    } catch (error) {
+      // Silently ignore token analysis errors
+    }
+  }
+
+  /**
    * Process OAuth token response
    */
   private processTokenResponse(response: any): string | null {
@@ -266,6 +329,9 @@ export class SACClient {
         if (response.data.scope) {
           logger.info(`  ✓ Scopes: ${response.data.scope}`);
         }
+
+        // Analyze token scopes for permission issues
+        this.analyzeTokenScopes(this.accessToken);
       }
 
       return this.accessToken;
@@ -485,6 +551,29 @@ export class SACClient {
               error.config.headers['x-csrf-token'].substring(0, 20) + '...' : 'Not set',
           },
         });
+
+        // Provide specific guidance for 401 errors
+        if (error.response.status === 401) {
+          logger.error('');
+          logger.error('🔍 401 UNAUTHORIZED ERROR - ROOT CAUSE ANALYSIS');
+          logger.error('━'.repeat(70));
+          logger.error('Authentication succeeded (got OAuth token) ✅');
+          logger.error('But authorization failed (insufficient permissions) ❌');
+          logger.error('');
+          logger.error('LIKELY CAUSE: Using XSUAA token instead of SAC OAuth token');
+          logger.error('');
+          logger.error('📖 Read these files for detailed explanation:');
+          logger.error('   1. AUTHORIZATION_ROOT_CAUSE_ANALYSIS.md');
+          logger.error('   2. BASIS_TEAM_ACTION_GUIDE.md');
+          logger.error('   3. WHAT_IS_REALLY_HAPPENING.md');
+          logger.error('');
+          logger.error('🔧 QUICK FIX: Create SAC-native OAuth client');
+          logger.error('   Location: SAC UI → System → Administration → OAuth Clients');
+          logger.error('   Scopes: Planning Model API + Multi-Action Execution');
+          logger.error('   Time: ~15 minutes');
+          logger.error('━'.repeat(70));
+          logger.error('');
+        }
       } else if (error.request) {
         logger.error('No response received from server');
         logger.error('Request:', error.request);
