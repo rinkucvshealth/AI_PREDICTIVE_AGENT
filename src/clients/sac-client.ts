@@ -34,9 +34,37 @@ export class SACClient {
       const token = await this.getAccessToken();
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
+      } else {
+        logger.error('⚠️  No OAuth token available - request will fail with 401');
       }
       return config;
     });
+
+    // Add response interceptor to handle 401 and retry with fresh token
+    this.axiosClient.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+        
+        // If 401 and we haven't retried yet, invalidate token and retry
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          logger.warn('⚠️  Received 401 Unauthorized - invalidating token and retrying...');
+          originalRequest._retry = true;
+          
+          // Force token refresh
+          this.accessToken = null;
+          this.tokenExpiry = 0;
+          
+          const token = await this.getAccessToken();
+          if (token) {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return this.axiosClient(originalRequest);
+          }
+        }
+        
+        return Promise.reject(error);
+      }
+    );
 
     logger.info(`SAC Client initialized for tenant: ${this.tenantUrl}`);
   }
@@ -269,37 +297,92 @@ export class SACClient {
    */
   async triggerMultiAction(request: SACMultiActionRequest): Promise<SACMultiActionResponse> {
     try {
-      logger.info(`Triggering SAC Multi-Action: ${this.multiActionId}`, request.parameters);
+      logger.info('========================================');
+      logger.info(`🎯 Triggering SAC Multi-Action`);
+      logger.info('========================================');
+      logger.info(`Multi-Action ID: ${this.multiActionId}`);
+      logger.info(`Model ID: ${this.modelId}`);
+      logger.info(`Parameters:`, request.parameters);
 
-      // SAC Multi-Action API endpoint format for Planning Models
-      const endpoint = `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`;
-
-      // Format request body for SAC Multi-Action
-      const requestBody = {
+      // Try the Planning Model-specific endpoint first (recommended for planning models)
+      // If that fails with 404, try the generic multi-action endpoint
+      
+      let endpoint = `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`;
+      let requestBody: any = {
         parameterValues: request.parameters,
       };
 
-      const response = await this.axiosClient.post(endpoint, requestBody);
+      logger.info(`Endpoint (Primary): ${this.tenantUrl}${endpoint}`);
+      logger.info(`Request Body:`, JSON.stringify(requestBody, null, 2));
 
-      logger.info('Multi-Action triggered successfully:', response.data);
+      try {
+        const response = await this.axiosClient.post(endpoint, requestBody);
+        
+        logger.info('✅ Multi-Action triggered successfully (Primary endpoint)');
+        logger.info('Response:', response.data);
+        logger.info('========================================');
 
-      return {
-        status: 'success',
-        executionId: response.data.runId || response.data.id || 'unknown',
-        message: 'Multi-Action execution started',
-      };
+        return {
+          status: 'success',
+          executionId: response.data.runId || response.data.id || 'unknown',
+          message: 'Multi-Action execution started',
+        };
+      } catch (primaryError: any) {
+        // If we get 404, try the alternative generic endpoint
+        if (primaryError.response?.status === 404) {
+          logger.warn('Primary endpoint returned 404, trying alternative endpoint...');
+          
+          endpoint = `/api/v1/multiactions/${this.multiActionId}/trigger`;
+          requestBody = request.parameters; // Generic endpoint may expect parameters directly
+          
+          logger.info(`Endpoint (Alternative): ${this.tenantUrl}${endpoint}`);
+          logger.info(`Request Body:`, JSON.stringify(requestBody, null, 2));
+          
+          const response = await this.axiosClient.post(endpoint, requestBody);
+          
+          logger.info('✅ Multi-Action triggered successfully (Alternative endpoint)');
+          logger.info('Response:', response.data);
+          logger.info('========================================');
+
+          return {
+            status: 'success',
+            executionId: response.data.runId || response.data.id || 'unknown',
+            message: 'Multi-Action execution started',
+          };
+        }
+        
+        // If not 404, re-throw the original error
+        throw primaryError;
+      }
     } catch (error: any) {
-      logger.error('Failed to trigger Multi-Action:', error.message);
+      logger.error('========================================');
+      logger.error('❌ Failed to trigger Multi-Action');
+      logger.error('========================================');
+      logger.error('Error message:', error.message);
       
       if (error.response) {
-        logger.error('SAC API Error:', {
+        logger.error('Response Details:', {
           status: error.response.status,
           statusText: error.response.statusText,
           data: error.response.data,
           headers: error.response.headers,
-          url: error.config?.url,
         });
+        logger.error('Request Details:', {
+          method: error.config?.method,
+          url: error.config?.url,
+          baseURL: error.config?.baseURL,
+          fullURL: `${error.config?.baseURL}${error.config?.url}`,
+          headers: {
+            ...error.config?.headers,
+            Authorization: error.config?.headers?.Authorization ? 
+              error.config.headers.Authorization.substring(0, 30) + '...' : 'Not set',
+          },
+        });
+      } else if (error.request) {
+        logger.error('No response received from server');
+        logger.error('Request:', error.request);
       }
+      logger.error('========================================');
 
       throw new SACError(`Failed to trigger Multi-Action: ${error.message}`);
     }
