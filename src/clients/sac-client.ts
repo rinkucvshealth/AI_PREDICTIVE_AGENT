@@ -370,16 +370,32 @@ export class SACClient {
       // Fetch CSRF token before making the POST request (optional)
       const csrfToken = await this.fetchCsrfToken();
 
-      // Try the Planning Model-specific endpoint first (recommended for planning models)
-      // If that fails with 404, try the generic multi-action endpoint
+      // Try multiple endpoint formats - SAC Multi-Action API has evolved
+      // and different tenants/versions may use different endpoints
       
-      let endpoint = `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`;
-      let requestBody: any = {
-        parameterValues: request.parameters,
-      };
-
-      logger.info(`Endpoint (Primary): ${this.tenantUrl}${endpoint}`);
-      logger.info(`Request Body:`, JSON.stringify(requestBody, null, 2));
+      const endpoints = [
+        {
+          name: 'Data Import Job (Recommended)',
+          url: `/api/v1/dataimport/planningModel/${this.modelId}/jobs`,
+          body: {
+            type: 'MULTIACTION',
+            multiActionId: this.multiActionId,
+            parameters: request.parameters,
+          },
+        },
+        {
+          name: 'Planning Model Multi-Action Runs',
+          url: `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`,
+          body: {
+            parameterValues: request.parameters,
+          },
+        },
+        {
+          name: 'Generic Multi-Action Trigger',
+          url: `/api/v1/multiactions/${this.multiActionId}/trigger`,
+          body: request.parameters,
+        },
+      ];
 
       // Prepare headers with CSRF token and cookies (if available)
       const headers: any = {};
@@ -400,70 +416,49 @@ export class SACClient {
         logger.info(`  ✓ Using ${this.cookies.length} session cookie(s)`);
       }
 
-      try {
-        const response = await this.axiosClient.post(endpoint, requestBody, { headers });
-        
-        logger.info('✅ Multi-Action triggered successfully (Primary endpoint)');
-        logger.info('Response:', response.data);
-        logger.info('========================================');
-
-        return {
-          status: 'success',
-          executionId: response.data.runId || response.data.id || 'unknown',
-          message: 'Multi-Action execution started',
-        };
-      } catch (primaryError: any) {
-        // If we get 404, try the alternative generic endpoint
-        if (primaryError.response?.status === 404) {
-          logger.warn('Primary endpoint returned 404, trying alternative endpoint...');
+      // Try each endpoint in order
+      let lastError: any = null;
+      
+      for (const endpoint of endpoints) {
+        try {
+          logger.info(`Attempting endpoint: ${endpoint.name}`);
+          logger.info(`  URL: ${this.tenantUrl}${endpoint.url}`);
+          logger.info(`  Body:`, JSON.stringify(endpoint.body, null, 2));
           
-          endpoint = `/api/v1/multiactions/${this.multiActionId}/trigger`;
-          requestBody = request.parameters; // Generic endpoint may expect parameters directly
+          const response = await this.axiosClient.post(endpoint.url, endpoint.body, { headers });
           
-          logger.info(`Endpoint (Alternative): ${this.tenantUrl}${endpoint}`);
-          logger.info(`Request Body:`, JSON.stringify(requestBody, null, 2));
-          
-          const response = await this.axiosClient.post(endpoint, requestBody, { headers });
-          
-          logger.info('✅ Multi-Action triggered successfully (Alternative endpoint)');
+          logger.info(`✅ Multi-Action triggered successfully via ${endpoint.name}`);
           logger.info('Response:', response.data);
           logger.info('========================================');
 
           return {
             status: 'success',
-            executionId: response.data.runId || response.data.id || 'unknown',
-            message: 'Multi-Action execution started',
+            executionId: response.data.runId || response.data.id || response.data.jobId || 'unknown',
+            message: `Multi-Action execution started via ${endpoint.name}`,
           };
-        }
-        
-        // If we get 403 and have CSRF token, try without CSRF token as fallback
-        if (primaryError.response?.status === 403 && csrfToken) {
-          logger.warn('Primary endpoint returned 403 with CSRF token, trying without CSRF...');
+        } catch (error: any) {
+          logger.warn(`❌ ${endpoint.name} failed: ${error.response?.status || error.message}`);
+          lastError = error;
           
-          // Remove CSRF token and cookies
-          const headersWithoutCsrf: any = {};
-          
-          try {
-            const response = await this.axiosClient.post(endpoint, requestBody, { headers: headersWithoutCsrf });
-            
-            logger.info('✅ Multi-Action triggered successfully (without CSRF token)');
-            logger.info('Response:', response.data);
-            logger.info('========================================');
-
-            return {
-              status: 'success',
-              executionId: response.data.runId || response.data.id || 'unknown',
-              message: 'Multi-Action execution started',
-            };
-          } catch (noCsrfError: any) {
-            logger.error('Failed even without CSRF token');
-            // Fall through to throw the original error
+          // Don't retry on certain error codes
+          if (error.response?.status === 403 || error.response?.status === 401) {
+            logger.warn('  → Authentication/Authorization error, trying next endpoint...');
+            continue;
           }
+          
+          if (error.response?.status === 404) {
+            logger.warn('  → Endpoint not found, trying next endpoint...');
+            continue;
+          }
+          
+          // For other errors, continue to next endpoint
+          continue;
         }
-        
-        // If not 404 or 403, or if fallbacks failed, re-throw the original error
-        throw primaryError;
       }
+      
+      // If all endpoints failed, throw the last error
+      logger.error('❌ All Multi-Action endpoints failed');
+      throw lastError || new Error('All Multi-Action endpoints failed');
     } catch (error: any) {
       logger.error('========================================');
       logger.error('❌ Failed to trigger Multi-Action');
