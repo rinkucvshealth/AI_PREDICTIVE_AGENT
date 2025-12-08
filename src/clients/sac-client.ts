@@ -43,15 +43,40 @@ export class SACClient {
 
   /**
    * Get OAuth access token using client credentials flow
+   * Supports multiple authentication methods with fallback
    */
   private async getAccessToken(): Promise<string | null> {
     try {
       // Check if token is still valid (with 5 minute buffer)
       if (this.accessToken && Date.now() < this.tokenExpiry - 300000) {
+        logger.info('Using cached OAuth token');
         return this.accessToken;
       }
 
-      logger.info('Fetching new OAuth access token from SAC');
+      logger.info('========================================');
+      logger.info('🔐 Starting OAuth token acquisition');
+      logger.info('========================================');
+
+      // Validate credentials before attempting OAuth
+      if (!config.sac.clientId || config.sac.clientId === 'placeholder') {
+        logger.error('❌ SAC_CLIENT_ID is missing or not configured');
+        logger.error('Please set SAC_CLIENT_ID environment variable');
+        return null;
+      }
+
+      if (!config.sac.clientSecret || config.sac.clientSecret === 'placeholder') {
+        logger.error('❌ SAC_CLIENT_SECRET is missing or not configured');
+        logger.error('Please set SAC_CLIENT_SECRET environment variable');
+        return null;
+      }
+
+      // Log credential format (masked)
+      const clientIdMasked = config.sac.clientId.substring(0, 20) + '...' + config.sac.clientId.substring(config.sac.clientId.length - 10);
+      logger.info(`Client ID format: ${clientIdMasked}`);
+      
+      // Detect XSUAA format (sb-xxx!bxxx|client!bxxx)
+      const isXSUAAFormat = /^sb-[^!]+!b[^|]+\|client!b.+$/.test(config.sac.clientId);
+      logger.info(`Credential type: ${isXSUAAFormat ? 'XSUAA (BTP-integrated)' : 'Standard SAC OAuth'}`);
 
       // SAC OAuth token endpoint - extract tenant and region from tenant URL
       // e.g., https://cvs-pharmacy-q.us10.hcs.cloud.sap
@@ -63,41 +88,160 @@ export class SACClient {
       const tokenUrl = config.sac.oauthTokenUrl || 
         `https://${tenantName}.authentication.${region}.hana.ondemand.com/oauth/token`;
       
-      logger.info(`Using OAuth token endpoint: ${tokenUrl}`);
-      
-      // Create Basic Auth header manually for OAuth client credentials
-      const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
-      
-      const response = await axios.post(
-        tokenUrl,
-        new URLSearchParams({
-          grant_type: 'client_credentials',
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${credentials}`,
-          },
+      logger.info(`OAuth token endpoint: ${tokenUrl}`);
+      logger.info(`Tenant: ${tenantName}, Region: ${region}`);
+
+      // Try multiple authentication methods
+      const methods = [
+        { name: 'Method 1: Basic Auth (Standard)', method: this.tryBasicAuth.bind(this) },
+        { name: 'Method 2: Basic Auth with Resource (XSUAA)', method: this.tryBasicAuthWithResource.bind(this) },
+        { name: 'Method 3: Client Credentials in Body', method: this.tryBodyCredentials.bind(this) },
+      ];
+
+      for (const { name, method } of methods) {
+        try {
+          logger.info(`Attempting ${name}...`);
+          const token = await method(tokenUrl, tenantName, region);
+          if (token) {
+            logger.info(`✅ Success with ${name}`);
+            logger.info('========================================');
+            return token;
+          }
+        } catch (error: any) {
+          logger.warn(`Failed ${name}:`, error.message);
+          // Continue to next method
         }
-      );
+      }
 
-      this.accessToken = response.data.access_token;
-      // Set expiry time (default to 3600 seconds if not provided)
-      const expiresIn = response.data.expires_in || 3600;
-      this.tokenExpiry = Date.now() + (expiresIn * 1000);
+      logger.error('❌ All OAuth authentication methods failed');
+      logger.error('========================================');
+      return null;
 
-      logger.info('Successfully obtained OAuth access token');
-      return this.accessToken;
     } catch (error: any) {
       logger.error('Failed to get OAuth access token:', error.message);
       if (error.response) {
         logger.error('OAuth error response:', {
           status: error.response.status,
+          statusText: error.response.statusText,
           data: error.response.data,
+          headers: error.response.headers,
         });
       }
+      logger.error('========================================');
       return null;
     }
+  }
+
+  /**
+   * Method 1: Standard Basic Auth
+   */
+  private async tryBasicAuth(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
+    
+    logger.info('  → Using Basic Auth header');
+    logger.info(`  → Body: grant_type=client_credentials`);
+    
+    const response = await axios.post(
+      tokenUrl,
+      new URLSearchParams({
+        grant_type: 'client_credentials',
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${credentials}`,
+        },
+        timeout: 30000,
+      }
+    );
+
+    return this.processTokenResponse(response);
+  }
+
+  /**
+   * Method 2: Basic Auth with Resource Parameter (XSUAA)
+   */
+  private async tryBasicAuthWithResource(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
+    const audience = `https://${tenantName}.authentication.${region}.hana.ondemand.com`;
+    
+    logger.info('  → Using Basic Auth with resource parameter');
+    logger.info(`  → Resource: ${audience}`);
+    
+    const params = new URLSearchParams({
+      grant_type: 'client_credentials',
+      resource: audience,
+    });
+
+    const response = await axios.post(
+      tokenUrl,
+      params,
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${credentials}`,
+        },
+        timeout: 30000,
+      }
+    );
+
+    return this.processTokenResponse(response);
+  }
+
+  /**
+   * Method 3: Client Credentials in POST Body
+   */
+  private async tryBodyCredentials(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    logger.info('  → Using client credentials in POST body');
+    
+    const params = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: config.sac.clientId,
+      client_secret: config.sac.clientSecret,
+    });
+
+    const response = await axios.post(
+      tokenUrl,
+      params,
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 30000,
+      }
+    );
+
+    return this.processTokenResponse(response);
+  }
+
+  /**
+   * Process OAuth token response
+   */
+  private processTokenResponse(response: any): string | null {
+    if (response.data && response.data.access_token) {
+      this.accessToken = response.data.access_token;
+      
+      // Set expiry time (default to 3600 seconds if not provided)
+      const expiresIn = response.data.expires_in || 3600;
+      this.tokenExpiry = Date.now() + (expiresIn * 1000);
+
+      // Log token info (masked)
+      if (this.accessToken) {
+        const tokenPreview = this.accessToken.substring(0, 20) + '...';
+        logger.info(`  ✓ Token acquired: ${tokenPreview}`);
+        logger.info(`  ✓ Expires in: ${expiresIn} seconds`);
+        logger.info(`  ✓ Token type: ${response.data.token_type || 'Bearer'}`);
+        
+        if (response.data.scope) {
+          logger.info(`  ✓ Scopes: ${response.data.scope}`);
+        }
+      }
+
+      return this.accessToken;
+    }
+
+    logger.warn('  ✗ No access_token in response');
+    return null;
   }
 
   /**
