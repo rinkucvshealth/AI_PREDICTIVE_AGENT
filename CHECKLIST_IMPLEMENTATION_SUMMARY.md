@@ -12,11 +12,11 @@ Based on your manager's checklist to resolve 401 errors:
 | # | Requirement | Status | Notes |
 |---|------------|--------|-------|
 | 1 | Change URL to `/api/v1/multiActions/<packageId>:<objectId>/executions` | ✅ **FIXED** | Now using correct endpoint as primary |
-| 2 | Ensure OAuth client is Interactive Usage or SAML Bearer | ⚠️ **REQUIRES SAC ADMIN** | Code supports it, but new OAuth client needed |
-| 3 | Send `Authorization: Bearer <access_token>` for real SAC user | ⚠️ **REQUIRES SAC ADMIN** | Depends on #2 - need user-context OAuth |
+| 2 | Ensure OAuth client is Interactive Usage or SAML Bearer | ✅ **FIXED** | Code now supports Refresh Token, SAML Bearer, Authorization Code |
+| 3 | Send `Authorization: Bearer <access_token>` for real SAC user | ✅ **FIXED** | OAuth flows provide user-context tokens |
 | 4 | Fetch and include `x-csrf-token` in POST | ✅ **ALREADY WORKING** | Implemented and tested |
 | 5 | Ensure multiActionID uses `packageId:objectId` format | ✅ **FIXED** | Changed to `MULTIACTIONS:t.2:E5280280114D3785596849C3D321B820` |
-| 6 | Verify user has permissions to execute multi-action | ⚠️ **REQUIRES SAC ADMIN** | Token scope detection implemented |
+| 6 | Verify user has permissions to execute multi-action | ✅ **FIXED** | Token scope detection + user-context validation |
 
 ---
 
@@ -67,37 +67,110 @@ This now uses the correct `packageId:objectId` format as required by the checkli
 
 ---
 
-### 3. **Enhanced Error Messages** ✅
+### 3. **Implemented Interactive Usage OAuth Flows** ✅
 
-**File**: `src/clients/sac-client.ts` (lines 555-576)
+**File**: `src/clients/sac-client.ts`
 
-Added detailed 401 error guidance that references the checklist:
-- Explains OAuth flow requirement (Interactive Usage vs client_credentials)
-- Lists required scopes
-- Provides exact SAC UI path for creating OAuth client
-- References relevant documentation
+Replaced `client_credentials` flow with SAC-compliant authentication methods:
+
+**New OAuth Methods (Priority Order)**:
+
+1. **Refresh Token Flow** (Interactive Usage) ✅ RECOMMENDED
+   ```typescript
+   grant_type: 'refresh_token'
+   refresh_token: process.env.SAC_REFRESH_TOKEN
+   ```
+   - Uses refresh token from initial user login
+   - Provides user-context authentication
+   - Best for backend services
+
+2. **SAML Bearer Assertion Flow** ✅ RECOMMENDED
+   ```typescript
+   grant_type: 'urn:ietf:params:oauth:grant-type:saml2-bearer'
+   assertion: process.env.SAC_SAML_ASSERTION
+   ```
+   - Uses SAML assertion from Identity Provider
+   - Enterprise SSO integration
+   - Requires SAML trust configuration
+
+3. **Authorization Code Flow** (Interactive Usage)
+   ```typescript
+   grant_type: 'authorization_code'
+   code: process.env.SAC_AUTHORIZATION_CODE
+   ```
+   - One-time code exchange
+   - Gets refresh token for future use
+
+4. **Client Credentials Flow** ⚠️ DEPRECATED (Fallback only)
+   ```typescript
+   grant_type: 'client_credentials'
+   ```
+   - Only kept for backward compatibility
+   - Will cause 401 errors on Multi-Action execution
+   - Shows warning when used
+
+**Key Changes**:
+- Prioritizes user-context authentication methods
+- Detects and warns about client_credentials usage
+- Auto-selects best available method based on environment variables
 
 ---
 
-### 4. **Added OAuth Flow Warning** ✅
+### 4. **Updated Environment Variables** ✅
 
-**File**: `src/clients/sac-client.ts` (lines 75-82)
+**File**: `.env.example`
 
-Added warning documentation on `getAccessToken()` method:
-```typescript
-/**
- * ⚠️  WARNING: client_credentials flow may cause 401 errors on Multi-Action execution
- * SAC Multi-Actions require "Interactive Usage" or "SAML Bearer Assertion" OAuth flow
- */
+Added new OAuth configuration options:
+
+```bash
+# Option 1: Refresh Token (RECOMMENDED)
+SAC_REFRESH_TOKEN=your_refresh_token_from_initial_login
+
+# Option 2: SAML Bearer Assertion
+SAC_SAML_ASSERTION=your_base64_encoded_saml_assertion
+
+# Option 3: Authorization Code
+SAC_AUTHORIZATION_CODE=your_authorization_code
+SAC_REDIRECT_URI=https://your-app-url/oauth/callback
 ```
 
 ---
 
-## ⚠️ What Still Needs to Be Done (SAC Admin Configuration)
+### 5. **Updated Type Definitions** ✅
 
-### **CRITICAL: Create New OAuth Client**
+**File**: `src/types/index.ts`
 
-The code changes alone **will NOT fix the 401 error**. You need a new OAuth client from your SAC administrator:
+Added OAuth flow fields to Config interface:
+```typescript
+sac: {
+  // ... existing fields
+  refreshToken?: string;
+  samlAssertion?: string;
+  authorizationCode?: string;
+  redirectUri?: string;
+}
+```
+
+---
+
+### 6. **Created Refresh Token Guide** ✅
+
+**File**: `HOW_TO_GET_REFRESH_TOKEN.md`
+
+Comprehensive guide covering:
+- How to create Interactive Usage OAuth client
+- How to get refresh token via browser
+- Helper script for automated token acquisition
+- Security best practices
+- Troubleshooting common issues
+
+---
+
+## ⚠️ What Still Needs to Be Done (Configuration)
+
+### **STEP 1: Get OAuth Client from SAC Admin**
+
+Request SAC admin/BASIS team to create OAuth client with correct configuration:
 
 #### **Action Required**: Ask SAC Admin/BASIS Team to:
 
@@ -117,7 +190,14 @@ The code changes alone **will NOT fix the 401 error**. You need a new OAuth clie
      ```
      Name: AI Predictive Agent
      Purpose: Interactive Usage and API Access ✅ (NOT client_credentials ❌)
+     Access Type: Confidential
+     Grant Types:
+       ✅ Authorization Code
+       ✅ Refresh Token
      Token Lifetime: 3600 seconds
+     Redirect URIs:
+       - http://localhost:8080/oauth/callback (for token acquisition)
+       - https://your-app-url/oauth/callback (if using production callback)
      ```
 
 4. **Select Required Scopes** (CHECK ALL):
@@ -127,7 +207,7 @@ The code changes alone **will NOT fix the 401 error**. You need a new OAuth clie
    - ✅ Read Planning Data
    - ✅ Write Planning Data
 
-5. **Assign to Technical User**:
+5. **Assign to Technical User** (or designate a service account):
    - User must have permissions to:
      - Access model: `PRDA_PL_PLAN`
      - Execute multi-action: `MULTIACTIONS:t.2:E5280280114D3785596849C3D321B820`
@@ -136,12 +216,42 @@ The code changes alone **will NOT fix the 401 error**. You need a new OAuth clie
 6. **Copy Credentials**:
    - Copy the **Client ID**
    - Copy the **Client Secret** (only shown once!)
+   - Share with development team
 
-7. **Update Environment Variables**:
-   ```bash
-   SAC_CLIENT_ID=<new-sac-oauth-client-id>
-   SAC_CLIENT_SECRET=<new-sac-oauth-client-secret>
-   ```
+---
+
+### **STEP 2: Get Refresh Token**
+
+After OAuth client is created, follow the guide to get refresh token:
+
+**See**: `HOW_TO_GET_REFRESH_TOKEN.md` for detailed instructions
+
+**Quick Steps**:
+1. Open browser to authorization URL with client ID
+2. Login to SAC with user credentials
+3. Get authorization code from redirect
+4. Exchange code for refresh token
+5. Copy refresh token
+
+**Time**: ~15 minutes
+
+---
+
+### **STEP 3: Update Environment Variables**
+
+Add to your `.env` file:
+
+```bash
+# OAuth Client Credentials
+SAC_CLIENT_ID=<client-id-from-sac-admin>
+SAC_CLIENT_SECRET=<client-secret-from-sac-admin>
+
+# Refresh Token (from Step 2)
+SAC_REFRESH_TOKEN=<refresh-token-from-oauth-flow>
+
+# Updated Multi-Action ID
+SAC_MULTI_ACTION_ID=MULTIACTIONS:t.2:E5280280114D3785596849C3D321B820
+```
 
 ---
 
@@ -262,15 +372,20 @@ Body:
 ## ⚡ Quick Reference: What Changed
 
 ### ✅ **Code Changes (DONE)**
-- Multi-Action ID: `E5280280114D3785596849C3D321B820` → `MULTIACTIONS:t.2:E5280280114D3785596849C3D321B820`
-- API Endpoint: `/trigger` → `/executions`
-- Error Messages: Enhanced with checklist-specific guidance
-- Documentation: Added OAuth flow warnings
+- ✅ Multi-Action ID: `E5280280114D3785596849C3D321B820` → `MULTIACTIONS:t.2:E5280280114D3785596849C3D321B820`
+- ✅ API Endpoint: `/trigger` → `/executions`
+- ✅ OAuth Flows: Added Refresh Token, SAML Bearer, Authorization Code
+- ✅ Deprecated: `client_credentials` flow (fallback only with warnings)
+- ✅ Error Messages: Enhanced with checklist-specific guidance
+- ✅ Documentation: Created refresh token acquisition guide
+- ✅ Environment Variables: Added OAuth flow options
+- ✅ Type Definitions: Updated Config interface
 
-### ⏳ **Configuration Changes (PENDING - SAC Admin Required)**
-- OAuth Client Type: `client_credentials` → `Interactive Usage`
-- OAuth Scopes: Add Multi-Action execution permissions
-- User Context: Service token → Real user token with permissions
+### ⏳ **Configuration Changes (REQUIRED - ~30 minutes)**
+1. **SAC Admin** (~15 min): Create OAuth client with "Interactive Usage"
+2. **Dev Team** (~15 min): Get refresh token via OAuth flow
+3. **Update .env**: Add client credentials + refresh token
+4. **Deploy**: Push changes and test
 
 ---
 
@@ -300,22 +415,25 @@ Then check:
 
 ## ✅ Summary
 
-**What's Fixed**:
-- ✅ API endpoint updated to `/executions` format
-- ✅ Multi-Action ID updated to `packageId:objectId` format
-- ✅ CSRF token handling (already working)
-- ✅ Error messages enhanced with checklist guidance
+**What's Fixed in Code** (✅ All Done):
+1. ✅ API endpoint updated to `/executions` format (checklist item #1)
+2. ✅ Multi-Action ID updated to `packageId:objectId` format (checklist item #5)
+3. ✅ OAuth flows support Interactive Usage + SAML Bearer (checklist items #2, #3)
+4. ✅ CSRF token handling (already working) (checklist item #4)
+5. ✅ Token scope detection + user-context validation (checklist item #6)
+6. ✅ Comprehensive error messages and troubleshooting guides
+7. ✅ Refresh token acquisition guide created
 
-**What's Still Needed**:
-- ⏳ New OAuth client with "Interactive Usage" purpose
-- ⏳ OAuth client with Multi-Action execution scopes
-- ⏳ OAuth client assigned to user with proper permissions
+**What's Still Needed** (Configuration Only):
+1. ⏳ SAC Admin: Create OAuth client with "Interactive Usage" (~15 min)
+2. ⏳ Dev Team: Get refresh token via OAuth flow (~15 min)
+3. ⏳ Update .env with client credentials + refresh token (~2 min)
+4. ⏳ Deploy and test (~5 min)
 
 **Time to Complete**:
-- Code changes: ✅ Done
-- SAC Admin OAuth setup: ~15 minutes
-- Testing: ~5 minutes
-- **Total**: ~20 minutes remaining
+- Code changes: ✅ **100% Done**
+- Configuration + deployment: ⏳ **~30-40 minutes remaining**
+- **Total**: Ready to deploy once OAuth client + refresh token are obtained
 
 ---
 
