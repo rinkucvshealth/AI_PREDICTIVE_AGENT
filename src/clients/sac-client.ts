@@ -74,6 +74,11 @@ export class SACClient {
 
   /**
    * Get OAuth access token using client credentials flow
+   * 
+   * ⚠️  WARNING: client_credentials flow may cause 401 errors on Multi-Action execution
+   * SAC Multi-Actions require "Interactive Usage" or "SAML Bearer Assertion" OAuth flow
+   * Reference: SAP Help Documentation (help.sap.com)
+   * 
    * Supports multiple authentication methods with fallback
    */
   private async getAccessToken(): Promise<string | null> {
@@ -436,12 +441,20 @@ export class SACClient {
       // Fetch CSRF token before making the POST request (optional)
       const csrfToken = await this.fetchCsrfToken();
 
-      // Try multiple endpoint formats - SAC Multi-Action API has evolved
-      // and different tenants/versions may use different endpoints
+      // SAC Multi-Action API Endpoint (Based on SAP Help Documentation)
+      // Format: /api/v1/multiActions/<packageId>:<objectId>/executions
+      // Reference: https://help.sap.com
       
       const endpoints = [
         {
-          name: 'Data Import Job (Recommended)',
+          name: 'Multi-Action Executions API (SAP Recommended)',
+          url: `/api/v1/multiActions/${this.multiActionId}/executions`,
+          body: {
+            parameterValues: request.parameters,
+          },
+        },
+        {
+          name: 'Data Import Job (Fallback)',
           url: `/api/v1/dataimport/planningModel/${this.modelId}/jobs`,
           body: {
             type: 'MULTIACTION',
@@ -450,16 +463,11 @@ export class SACClient {
           },
         },
         {
-          name: 'Planning Model Multi-Action Runs',
+          name: 'Planning Model Multi-Action Runs (Fallback)',
           url: `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`,
           body: {
             parameterValues: request.parameters,
           },
-        },
-        {
-          name: 'Generic Multi-Action Trigger',
-          url: `/api/v1/multiactions/${this.multiActionId}/trigger`,
-          body: request.parameters,
         },
       ];
 
@@ -555,22 +563,33 @@ export class SACClient {
         // Provide specific guidance for 401 errors
         if (error.response.status === 401) {
           logger.error('');
-          logger.error('🔍 401 UNAUTHORIZED ERROR - ROOT CAUSE ANALYSIS');
+          logger.error('🔍 401 UNAUTHORIZED ERROR - CHECKLIST ANALYSIS');
           logger.error('━'.repeat(70));
           logger.error('Authentication succeeded (got OAuth token) ✅');
           logger.error('But authorization failed (insufficient permissions) ❌');
           logger.error('');
-          logger.error('LIKELY CAUSE: Using XSUAA token instead of SAC OAuth token');
+          logger.error('LIKELY CAUSES:');
+          logger.error('  1. ❌ Using client_credentials OAuth flow (machine-to-machine)');
+          logger.error('     ✅ REQUIRED: Interactive Usage or SAML Bearer Assertion');
+          logger.error('  2. ❌ OAuth client lacks Multi-Action execution scopes');
+          logger.error('  3. ❌ Token is not for a real SAC user with permissions');
           logger.error('');
-          logger.error('📖 Read these files for detailed explanation:');
-          logger.error('   1. AUTHORIZATION_ROOT_CAUSE_ANALYSIS.md');
-          logger.error('   2. BASIS_TEAM_ACTION_GUIDE.md');
-          logger.error('   3. WHAT_IS_REALLY_HAPPENING.md');
+          logger.error('🔧 SOLUTION: Create SAC-native OAuth client');
+          logger.error('   Location: SAC → System → Administration → OAuth Clients');
+          logger.error('   Purpose: Interactive Usage and API Access (NOT client_credentials)');
+          logger.error('   Required Scopes:');
+          logger.error('     • Data Import Service API');
+          logger.error('     • Planning Model API');
+          logger.error('     • Multi-Action Execution');
+          logger.error('     • Read/Write Planning Data');
+          logger.error('   Assign to: Technical user with permissions to:');
+          logger.error('     • Access model: ' + this.modelId);
+          logger.error('     • Execute multi-action: ' + this.multiActionId);
           logger.error('');
-          logger.error('🔧 QUICK FIX: Create SAC-native OAuth client');
-          logger.error('   Location: SAC UI → System → Administration → OAuth Clients');
-          logger.error('   Scopes: Planning Model API + Multi-Action Execution');
-          logger.error('   Time: ~15 minutes');
+          logger.error('📖 References:');
+          logger.error('   • AUTHORIZATION_ROOT_CAUSE_ANALYSIS.md');
+          logger.error('   • BASIS_TEAM_ACTION_GUIDE.md');
+          logger.error('   • SAP Help: help.sap.com');
           logger.error('━'.repeat(70));
           logger.error('');
         }
