@@ -30,6 +30,11 @@ function validateConfig(): Config {
       modelId: process.env['SAC_MODEL_ID'] || 'PRDA_PL_PLAN',
       multiActionId: process.env['SAC_MULTI_ACTION_ID'] || 'MULTIACTIONS:t.2:E5280280114D3785596849C3D321B820',
       storyId: process.env['SAC_STORY_ID'],
+      // OAuth Flow Options (for Interactive Usage / SAML Bearer Assertion)
+      refreshToken: process.env['SAC_REFRESH_TOKEN'],
+      samlAssertion: process.env['SAC_SAML_ASSERTION'],
+      authorizationCode: process.env['SAC_AUTHORIZATION_CODE'],
+      redirectUri: process.env['SAC_REDIRECT_URI'],
     },
     openai: {
       apiKey: process.env['OPENAI_API_KEY'] || 'placeholder',

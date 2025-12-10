@@ -62,6 +62,11 @@ export interface Config {
     modelId: string;
     multiActionId: string;
     storyId?: string;
+    // OAuth Flow Options (for Interactive Usage / SAML Bearer Assertion)
+    refreshToken?: string;
+    samlAssertion?: string;
+    authorizationCode?: string;
+    redirectUri?: string;
   };
   openai: {
     apiKey: string;

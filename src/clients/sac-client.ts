@@ -73,13 +73,16 @@ export class SACClient {
   }
 
   /**
-   * Get OAuth access token using client credentials flow
+   * Get OAuth access token
    * 
-   * ⚠️  WARNING: client_credentials flow may cause 401 errors on Multi-Action execution
-   * SAC Multi-Actions require "Interactive Usage" or "SAML Bearer Assertion" OAuth flow
+   * ✅ SUPPORTS SAC MULTI-ACTION REQUIREMENTS:
+   *    - Interactive Usage (via Refresh Token)
+   *    - SAML Bearer Assertion
+   *    - Authorization Code flow (with refresh token)
+   * 
+   * ❌ DEPRECATED: client_credentials flow (causes 401 on Multi-Action execution)
+   * 
    * Reference: SAP Help Documentation (help.sap.com)
-   * 
-   * Supports multiple authentication methods with fallback
    */
   private async getAccessToken(): Promise<string | null> {
     try {
@@ -93,7 +96,7 @@ export class SACClient {
       logger.info('🔐 Starting OAuth token acquisition');
       logger.info('========================================');
 
-      // Validate credentials before attempting OAuth
+      // Validate OAuth client configuration
       if (!config.sac.clientId || config.sac.clientId === 'placeholder') {
         logger.error('❌ SAC_CLIENT_ID is missing or not configured');
         logger.error('Please set SAC_CLIENT_ID environment variable');
@@ -112,26 +115,30 @@ export class SACClient {
       
       // Detect XSUAA format (sb-xxx!bxxx|client!bxxx)
       const isXSUAAFormat = /^sb-[^!]+!b[^|]+\|client!b.+$/.test(config.sac.clientId);
-      logger.info(`Credential type: ${isXSUAAFormat ? 'XSUAA (BTP-integrated)' : 'Standard SAC OAuth'}`);
+      logger.info(`Credential type: ${isXSUAAFormat ? 'XSUAA (BTP-integrated)' : 'SAC-native OAuth'}`);
 
       // SAC OAuth token endpoint - extract tenant and region from tenant URL
       // e.g., https://cvs-pharmacy-q.us10.hcs.cloud.sap
-      // becomes: https://cvs-pharmacy-q.authentication.us10.hana.ondemand.com/oauth/token
       const tenantMatch = this.tenantUrl.match(/https:\/\/([^.]+)\.([^.]+)\./);
       const tenantName = tenantMatch ? tenantMatch[1] : '';
       const region = tenantMatch ? tenantMatch[2] : 'us10';
       
+      // Default to SAC direct OAuth endpoint (for SAC-native OAuth clients)
+      // For XSUAA, it will auto-detect and use the authentication subdomain
       const tokenUrl = config.sac.oauthTokenUrl || 
-        `https://${tenantName}.authentication.${region}.hana.ondemand.com/oauth/token`;
+        (isXSUAAFormat 
+          ? `https://${tenantName}.authentication.${region}.hana.ondemand.com/oauth/token`
+          : `https://${tenantName}.${region}.hcs.cloud.sap/oauth/token`);
       
       logger.info(`OAuth token endpoint: ${tokenUrl}`);
       logger.info(`Tenant: ${tenantName}, Region: ${region}`);
 
-      // Try multiple authentication methods
+      // Try authentication methods in priority order (SAC-recommended methods first)
       const methods = [
-        { name: 'Method 1: Basic Auth (Standard)', method: this.tryBasicAuth.bind(this) },
-        { name: 'Method 2: Basic Auth with Resource (XSUAA)', method: this.tryBasicAuthWithResource.bind(this) },
-        { name: 'Method 3: Client Credentials in Body', method: this.tryBodyCredentials.bind(this) },
+        { name: 'Method 1: Refresh Token (Interactive Usage) ✅ RECOMMENDED', method: this.tryRefreshToken.bind(this) },
+        { name: 'Method 2: SAML Bearer Assertion ✅ RECOMMENDED', method: this.trySAMLBearer.bind(this) },
+        { name: 'Method 3: Authorization Code (Interactive Usage)', method: this.tryAuthorizationCode.bind(this) },
+        { name: 'Method 4: Client Credentials (Fallback) ⚠️ DEPRECATED', method: this.tryClientCredentials.bind(this) },
       ];
 
       for (const { name, method } of methods) {
@@ -150,6 +157,20 @@ export class SACClient {
       }
 
       logger.error('❌ All OAuth authentication methods failed');
+      logger.error('');
+      logger.error('📖 CONFIGURATION REQUIRED:');
+      logger.error('   To fix 401 errors on Multi-Action execution, you need:');
+      logger.error('');
+      logger.error('   Option 1: Refresh Token (Easiest)');
+      logger.error('     1. Get OAuth client from SAC admin (Interactive Usage type)');
+      logger.error('     2. Perform initial login to get refresh token');
+      logger.error('     3. Set SAC_REFRESH_TOKEN environment variable');
+      logger.error('');
+      logger.error('   Option 2: SAML Bearer Assertion');
+      logger.error('     1. Configure SAML trust between Identity Provider and SAC');
+      logger.error('     2. Set SAC_SAML_ASSERTION environment variable');
+      logger.error('');
+      logger.error('   See: CHECKLIST_IMPLEMENTATION_SUMMARY.md for detailed instructions');
       logger.error('========================================');
       return null;
 
@@ -169,44 +190,25 @@ export class SACClient {
   }
 
   /**
-   * Method 1: Standard Basic Auth
+   * Method 1: Refresh Token (Interactive Usage) ✅ RECOMMENDED
+   * For OAuth clients with "Interactive Usage" purpose
    */
-  private async tryBasicAuth(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
-    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
-    
-    logger.info('  → Using Basic Auth header');
-    logger.info(`  → Body: grant_type=client_credentials`);
-    
-    const response = await axios.post(
-      tokenUrl,
-      new URLSearchParams({
-        grant_type: 'client_credentials',
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Basic ${credentials}`,
-        },
-        timeout: 30000,
-      }
-    );
+  private async tryRefreshToken(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    // Check if refresh token is available
+    const refreshToken = process.env['SAC_REFRESH_TOKEN'];
+    if (!refreshToken) {
+      logger.info('  ✗ No refresh token available (SAC_REFRESH_TOKEN not set)');
+      return null;
+    }
 
-    return this.processTokenResponse(response);
-  }
-
-  /**
-   * Method 2: Basic Auth with Resource Parameter (XSUAA)
-   */
-  private async tryBasicAuthWithResource(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
-    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
-    const audience = `https://${tenantName}.authentication.${region}.hana.ondemand.com`;
+    logger.info('  → Using Refresh Token flow (Interactive Usage)');
+    logger.info('  → Grant type: refresh_token');
     
-    logger.info('  → Using Basic Auth with resource parameter');
-    logger.info(`  → Resource: ${audience}`);
+    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
     
     const params = new URLSearchParams({
-      grant_type: 'client_credentials',
-      resource: audience,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
     });
 
     const response = await axios.post(
@@ -225,15 +227,26 @@ export class SACClient {
   }
 
   /**
-   * Method 3: Client Credentials in POST Body
+   * Method 2: SAML Bearer Assertion ✅ RECOMMENDED
+   * For SAML-based authentication with user context
    */
-  private async tryBodyCredentials(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
-    logger.info('  → Using client credentials in POST body');
+  private async trySAMLBearer(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    // Check if SAML assertion is available
+    const samlAssertion = process.env['SAC_SAML_ASSERTION'];
+    if (!samlAssertion) {
+      logger.info('  ✗ No SAML assertion available (SAC_SAML_ASSERTION not set)');
+      return null;
+    }
+
+    logger.info('  → Using SAML Bearer Assertion flow');
+    logger.info('  → Grant type: urn:ietf:params:oauth:grant-type:saml2-bearer');
+    
+    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
     
     const params = new URLSearchParams({
-      grant_type: 'client_credentials',
+      grant_type: 'urn:ietf:params:oauth:grant-type:saml2-bearer',
+      assertion: samlAssertion,
       client_id: config.sac.clientId,
-      client_secret: config.sac.clientSecret,
     });
 
     const response = await axios.post(
@@ -242,12 +255,111 @@ export class SACClient {
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${credentials}`,
         },
         timeout: 30000,
       }
     );
 
     return this.processTokenResponse(response);
+  }
+
+  /**
+   * Method 3: Authorization Code (Interactive Usage)
+   * For OAuth clients with authorization_code grant type
+   * Requires SAC_AUTHORIZATION_CODE to be set from initial interactive login
+   */
+  private async tryAuthorizationCode(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    // Check if authorization code is available
+    const authCode = process.env['SAC_AUTHORIZATION_CODE'];
+    const redirectUri = process.env['SAC_REDIRECT_URI'];
+    
+    if (!authCode) {
+      logger.info('  ✗ No authorization code available (SAC_AUTHORIZATION_CODE not set)');
+      return null;
+    }
+
+    if (!redirectUri) {
+      logger.info('  ✗ No redirect URI configured (SAC_REDIRECT_URI not set)');
+      return null;
+    }
+
+    logger.info('  → Using Authorization Code flow (Interactive Usage)');
+    logger.info('  → Grant type: authorization_code');
+    
+    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
+    
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: authCode,
+      redirect_uri: redirectUri,
+    });
+
+    const response = await axios.post(
+      tokenUrl,
+      params,
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${credentials}`,
+        },
+        timeout: 30000,
+      }
+    );
+
+    return this.processTokenResponse(response);
+  }
+
+  /**
+   * Method 4: Client Credentials (Fallback) ⚠️ DEPRECATED
+   * 
+   * WARNING: This flow is NOT recommended for SAC Multi-Action execution
+   * It provides service-to-service authentication without user context
+   * Will cause 401 Unauthorized errors on Multi-Action execution
+   * 
+   * Only kept as fallback for backward compatibility
+   */
+  private async tryClientCredentials(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    logger.warn('  ⚠️  WARNING: Using client_credentials flow (deprecated for Multi-Actions)');
+    logger.info('  → This may cause 401 errors on Multi-Action execution');
+    logger.info('  → Grant type: client_credentials');
+    
+    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
+    
+    const params = new URLSearchParams({
+      grant_type: 'client_credentials',
+    });
+
+    const response = await axios.post(
+      tokenUrl,
+      params,
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${credentials}`,
+        },
+        timeout: 30000,
+      }
+    );
+
+    // Warn about potential issues
+    const token = this.processTokenResponse(response);
+    if (token) {
+      logger.warn('');
+      logger.warn('⚠️  CLIENT_CREDENTIALS TOKEN ACQUIRED');
+      logger.warn('━'.repeat(70));
+      logger.warn('This token may NOT work for Multi-Action execution.');
+      logger.warn('If you get 401 errors, you need to use one of:');
+      logger.warn('  1. Refresh Token (set SAC_REFRESH_TOKEN)');
+      logger.warn('  2. SAML Bearer Assertion (set SAC_SAML_ASSERTION)');
+      logger.warn('  3. Authorization Code (set SAC_AUTHORIZATION_CODE + SAC_REDIRECT_URI)');
+      logger.warn('');
+      logger.warn('See: CHECKLIST_IMPLEMENTATION_SUMMARY.md');
+      logger.warn('━'.repeat(70));
+      logger.warn('');
+    }
+
+    return token;
   }
 
   /**
