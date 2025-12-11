@@ -138,6 +138,7 @@ export class SACClient {
         { name: 'Method 1: Refresh Token (Interactive Usage) ✅ RECOMMENDED', method: this.tryRefreshToken.bind(this) },
         { name: 'Method 2: SAML Bearer Assertion ✅ RECOMMENDED', method: this.trySAMLBearer.bind(this) },
         { name: 'Method 3: Authorization Code (Interactive Usage)', method: this.tryAuthorizationCode.bind(this) },
+        { name: 'Method 5: Password Grant (BASIS Team) ✅ WORKS', method: this.tryPasswordGrant.bind(this) },
         { name: 'Method 4: Client Credentials (Fallback) ⚠️ DEPRECATED', method: this.tryClientCredentials.bind(this) },
       ];
 
@@ -357,6 +358,65 @@ export class SACClient {
       logger.warn('See: CHECKLIST_IMPLEMENTATION_SUMMARY.md');
       logger.warn('━'.repeat(70));
       logger.warn('');
+    }
+
+    return token;
+  }
+
+  /**
+   * Method 5: Password Grant (Resource Owner Password Credentials)
+   * 
+   * ✅ WORKS: Provides user-context authentication for Multi-Actions
+   * ⚠️  SECURITY: Stores user credentials in environment variables
+   * 
+   * Suggested by BASIS team as working solution.
+   * Use for quick fix, then migrate to Refresh Token for production.
+   */
+  private async tryPasswordGrant(tokenUrl: string, tenantName: string, region: string): Promise<string | null> {
+    // Check if username and password are available
+    const username = process.env['SAC_USERNAME'];
+    const password = process.env['SAC_PASSWORD'];
+    
+    if (!username || !password) {
+      logger.info('  ✗ No username/password available (SAC_USERNAME or SAC_PASSWORD not set)');
+      return null;
+    }
+
+    logger.info('  → Using Password Grant flow (Resource Owner Password Credentials)');
+    logger.info('  → Grant type: password');
+    logger.info('  → Username: ' + username.substring(0, 3) + '***' + (username.includes('@') ? '@' + username.split('@')[1] : ''));
+    
+    const credentials = Buffer.from(`${config.sac.clientId}:${config.sac.clientSecret}`).toString('base64');
+    
+    const params = new URLSearchParams({
+      grant_type: 'password',
+      username: username,
+      password: password,
+    });
+
+    const response = await axios.post(
+      tokenUrl,
+      params,
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${credentials}`,
+        },
+        timeout: 30000,
+      }
+    );
+
+    const token = this.processTokenResponse(response);
+    
+    if (token) {
+      logger.info('');
+      logger.info('✅ PASSWORD GRANT TOKEN ACQUIRED');
+      logger.info('━'.repeat(70));
+      logger.info('User context: ' + username);
+      logger.info('This token WILL work for Multi-Action execution! ✅');
+      logger.info('⚠️  SECURITY NOTE: Consider using Refresh Token for production');
+      logger.info('━'.repeat(70));
+      logger.info('');
     }
 
     return token;
