@@ -14,8 +14,14 @@ function isSecureRequest(req: express.Request): boolean {
 }
 
 function getRequestBaseUrl(req: express.Request): string {
-  const proto = (req.headers['x-forwarded-proto'] as string | undefined) || req.protocol;
-  const host = req.get('host');
+  const xfProtoRaw = (req.headers['x-forwarded-proto'] as string | undefined) || '';
+  const xfHostRaw = (req.headers['x-forwarded-host'] as string | undefined) || '';
+  const xfProto = (xfProtoRaw.split(',')[0] || '').trim();
+  const xfHost = (xfHostRaw.split(',')[0] || '').trim();
+
+  const proto = xfProto || req.protocol;
+  const host = xfHost || req.get('host');
+
   return `${proto}://${host}`;
 }
 
@@ -90,6 +96,11 @@ router.get('/debug', (req, res) => {
     tokenUrl,
     authorizationUrl,
     redirectUri,
+    request: {
+      host: req.get('host'),
+      'x-forwarded-host': req.headers['x-forwarded-host'],
+      'x-forwarded-proto': req.headers['x-forwarded-proto'],
+    },
     note: 'BASIS must register redirectUri EXACTLY in SAC OAuth client. Use /oauth/login after that.',
   });
 });
