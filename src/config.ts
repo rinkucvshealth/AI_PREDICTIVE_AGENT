@@ -5,6 +5,20 @@ import { Config } from './types';
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+function inferEnvironmentLabelFromTenantUrl(tenantUrl: string): string {
+  try {
+    const hostname = new URL(tenantUrl).hostname.toLowerCase();
+    // Common patterns: "-q" (QA), "-p" (prod), "dev", "test"
+    if (hostname.includes('-q.') || hostname.includes('-qa.') || hostname.includes('qa')) return 'QA';
+    if (hostname.includes('-t.') || hostname.includes('-test.') || hostname.includes('test')) return 'TEST';
+    if (hostname.includes('-d.') || hostname.includes('-dev.') || hostname.includes('dev')) return 'DEV';
+    if (hostname.includes('-p.') || hostname.includes('-prod.') || hostname.includes('prod')) return 'PROD';
+    return (process.env['NODE_ENV'] || 'unknown').toUpperCase();
+  } catch {
+    return (process.env['NODE_ENV'] || 'unknown').toUpperCase();
+  }
+}
+
 function validateConfig(): Config {
   const requiredEnvVars = [
     'SAC_TENANT_URL',
@@ -46,6 +60,10 @@ function validateConfig(): Config {
     },
     app: {
       nodeEnv: process.env['NODE_ENV'] || 'development',
+      // Prefer explicit label when provided; otherwise infer from tenant URL.
+      environmentLabel:
+        (process.env['APP_ENV'] || process.env['ENVIRONMENT'] || '').trim().toUpperCase() ||
+        inferEnvironmentLabelFromTenantUrl(process.env['SAC_TENANT_URL'] || 'https://cvs-pharmacy-q.us10.hcs.cloud.sap'),
       logLevel: process.env['LOG_LEVEL'] || 'info',
       defaultForecastPeriod: parseInt(process.env['DEFAULT_FORECAST_PERIOD'] || '6', 10),
       defaultVersionPrefix: process.env['DEFAULT_VERSION_PREFIX'] || 'Forecast',
@@ -59,5 +77,5 @@ export const config = validateConfig();
 console.log('📋 Configuration loaded:');
 console.log(`   SAC Tenant: ${config.sac.tenantUrl}`);
 console.log(`   SAC Model: ${config.sac.modelId}`);
-console.log(`   Environment: ${config.app.nodeEnv}`);
+console.log(`   Environment: ${config.app.environmentLabel} (NODE_ENV=${config.app.nodeEnv})`);
 console.log(`   Port: ${config.server.port}`);
