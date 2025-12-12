@@ -1,7 +1,16 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { SACError, SACMultiActionRequest, SACMultiActionResponse } from '../types';
+
+type SACAxiosRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+  /**
+   * When true, we must use a user-context OAuth flow.
+   * SAP Note 3407120: Multi Action API does NOT support client_credentials tokens.
+   */
+  _requireUserContext?: boolean;
+};
 
 /**
  * SAC API Client for interacting with SAP Analytics Cloud
@@ -33,21 +42,23 @@ export class SACClient {
     });
 
     // Add request interceptor to inject OAuth token
-    this.axiosClient.interceptors.request.use(async (config) => {
-      const token = await this.getAccessToken();
+    this.axiosClient.interceptors.request.use(async (cfg) => {
+      const requestConfig = cfg as SACAxiosRequestConfig;
+      const requireUserContext = Boolean(requestConfig._requireUserContext);
+      const token = await this.getAccessToken({ allowClientCredentials: !requireUserContext });
       if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+        requestConfig.headers.Authorization = `Bearer ${token}`;
       } else {
         logger.error('⚠️  No OAuth token available - request will fail with 401');
       }
-      return config;
+      return requestConfig;
     });
 
     // Add response interceptor to handle 401 and retry with fresh token
     this.axiosClient.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const originalRequest = error.config;
+        const originalRequest = error.config as SACAxiosRequestConfig;
         
         // If 401 and we haven't retried yet, invalidate token and retry
         if (error.response?.status === 401 && !originalRequest._retry) {
@@ -58,7 +69,8 @@ export class SACClient {
           this.accessToken = null;
           this.tokenExpiry = 0;
           
-          const token = await this.getAccessToken();
+          const requireUserContext = Boolean(originalRequest._requireUserContext);
+          const token = await this.getAccessToken({ allowClientCredentials: !requireUserContext });
           if (token) {
             originalRequest.headers.Authorization = `Bearer ${token}`;
             return this.axiosClient(originalRequest);
@@ -84,8 +96,9 @@ export class SACClient {
    * 
    * Reference: SAP Help Documentation (help.sap.com)
    */
-  private async getAccessToken(): Promise<string | null> {
+  private async getAccessToken(options?: { allowClientCredentials?: boolean }): Promise<string | null> {
     try {
+      const allowClientCredentials = options?.allowClientCredentials ?? true;
       // Check if token is still valid (with 5 minute buffer)
       if (this.accessToken && Date.now() < this.tokenExpiry - 300000) {
         logger.info('Using cached OAuth token');
@@ -134,13 +147,19 @@ export class SACClient {
       logger.info(`Tenant: ${tenantName}, Region: ${region}`);
 
       // Try authentication methods in priority order (SAC-recommended methods first)
-      const methods = [
+      const methods: Array<{ name: string; method: (tokenUrl: string, tenantName: string, region: string) => Promise<string | null> }> = [
         { name: 'Method 1: Refresh Token (Interactive Usage) ✅ RECOMMENDED', method: this.tryRefreshToken.bind(this) },
         { name: 'Method 2: SAML Bearer Assertion ✅ RECOMMENDED', method: this.trySAMLBearer.bind(this) },
         { name: 'Method 3: Authorization Code (Interactive Usage)', method: this.tryAuthorizationCode.bind(this) },
         { name: 'Method 5: Password Grant (BASIS Team) ✅ WORKS', method: this.tryPasswordGrant.bind(this) },
-        { name: 'Method 4: Client Credentials (Fallback) ⚠️ DEPRECATED', method: this.tryClientCredentials.bind(this) },
       ];
+
+      // SAP Note 3407120: Multi Action API does NOT support client_credentials.
+      if (allowClientCredentials) {
+        methods.push({ name: 'Method 4: Client Credentials (Fallback) ⚠️ DEPRECATED', method: this.tryClientCredentials.bind(this) });
+      } else {
+        logger.info('Skipping client_credentials flow (user-context required for this request)');
+      }
 
       for (const { name, method } of methods) {
         try {
@@ -523,12 +542,14 @@ export class SACClient {
    * SAC requires CSRF tokens for POST/PUT/DELETE operations
    * Tries multiple endpoints as fallback
    */
-  private async fetchCsrfToken(): Promise<string | null> {
+  private async fetchCsrfToken(requireUserContext: boolean = false): Promise<string | null> {
     try {
       logger.info('🔒 Fetching CSRF token from SAC...');
       
       // Try multiple endpoints to fetch CSRF token
       const csrfEndpoints = [
+        // SAP Note 3407120: Use <tenant-url>/api/v1/csrf (NOT *.authentication.*)
+        '/api/v1/csrf',
         `/api/v1/dataimport/planningModel/${this.modelId}`,
         '/api/v1/dataimport/planningModel',
         '/api/v1/models',
@@ -545,6 +566,9 @@ export class SACClient {
             headers: {
               'x-csrf-token': 'Fetch',
             },
+            // Ensure we use a user-context token for Multi Action API flows.
+            // Note: axios allows custom config properties; interceptor reads this.
+            ...(requireUserContext ? ({ _requireUserContext: true } as any) : {}),
             validateStatus: (status) => status < 500, // Accept 4xx responses
           });
 
@@ -610,8 +634,9 @@ export class SACClient {
       logger.info(`Model ID: ${this.modelId}`);
       logger.info(`Parameters:`, request.parameters);
 
-      // Fetch CSRF token before making the POST request (optional)
-      const csrfToken = await this.fetchCsrfToken();
+      // Fetch CSRF token before making the POST request (SAP Note 3407120 recommends /api/v1/csrf)
+      // Also ensure we use a user-context OAuth token (Multi Action API does NOT support client_credentials).
+      const csrfToken = await this.fetchCsrfToken(true);
 
       // SAC Multi-Action API Endpoint (Based on SAP Help Documentation)
       // Format: /api/v1/multiActions/<packageId>:<objectId>/executions
@@ -671,7 +696,11 @@ export class SACClient {
           logger.info(`  URL: ${this.tenantUrl}${endpoint.url}`);
           logger.info(`  Body:`, JSON.stringify(endpoint.body, null, 2));
           
-          const response = await this.axiosClient.post(endpoint.url, endpoint.body, { headers });
+          const response = await this.axiosClient.post(
+            endpoint.url,
+            endpoint.body,
+            { headers, _requireUserContext: true } as any
+          );
           
           logger.info(`✅ Multi-Action triggered successfully via ${endpoint.name}`);
           logger.info('Response:', response.data);
