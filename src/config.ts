@@ -41,6 +41,7 @@ function validateConfig(): Config {
       clientId: process.env['SAC_CLIENT_ID'] || 'placeholder',
       clientSecret: process.env['SAC_CLIENT_SECRET'] || 'placeholder',
       oauthTokenUrl: process.env['SAC_OAUTH_TOKEN_URL'], // Optional: Override OAuth token endpoint
+      oauthAuthUrl: process.env['SAC_OAUTH_AUTH_URL'], // Optional: Override OAuth authorization endpoint
       modelId: process.env['SAC_MODEL_ID'] || 'PRDA_PL_PLAN',
       multiActionId: process.env['SAC_MULTI_ACTION_ID'] || 'MULTIACTIONS:t.2:E5280280114D3785596849C3D321B820',
       storyId: process.env['SAC_STORY_ID'],
