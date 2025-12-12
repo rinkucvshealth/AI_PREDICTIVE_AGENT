@@ -38,32 +38,61 @@ function isXSUAAClientIdFormat(clientId: string): boolean {
   return /^sb-[^!]+!b[^|]+\|client!b.+$/.test(clientId);
 }
 
-function deriveOAuthTokenUrl(): { tokenUrl: string; tenantName: string; region: string } {
+function deriveTenantAndRegion(): { tenantName: string; region: string } {
   const tenantUrl = config.sac.tenantUrl;
   const tenantMatch = tenantUrl.match(/https:\/\/([^.]+)\.([^.]+)\./);
   const tenantName = tenantMatch ? tenantMatch[1] : '';
   const region = tenantMatch ? tenantMatch[2] : 'us10';
+  return { tenantName, region };
+}
+
+function deriveOAuthTokenUrl(): { tokenUrl: string; tenantName: string; region: string } {
+  const { tenantName, region } = deriveTenantAndRegion();
 
   const clientId = config.sac.clientId || '';
   const isXSUAA = isXSUAAClientIdFormat(clientId);
 
+  // IMPORTANT:
+  // - For authorization_code flow, SAC typically uses the Identity Authentication host
+  //   (<tenant>.authentication.<region>.hana.ondemand.com) for /oauth/authorize and /oauth/token.
+  // - API calls (CSRF, multiActions, etc.) must use the tenant URL (<tenant>.<region>.hcs.cloud.sap).
+  // - Allow overrides via env/config to match what SAC shows in OAuth client details.
   const tokenUrl =
-    config.sac.oauthTokenUrl ||
-    (isXSUAA
-      ? `https://${tenantName}.authentication.${region}.hana.ondemand.com/oauth/token`
-      : `https://${tenantName}.${region}.hcs.cloud.sap/oauth/token`);
+    (config.sac.oauthTokenUrl || '').trim() ||
+    (process.env['SAC_OAUTH_TOKEN_URL'] || '').trim() ||
+    `https://${tenantName}.authentication.${region}.hana.ondemand.com/oauth/token`;
 
   return { tokenUrl, tenantName, region };
 }
 
 function deriveOAuthAuthorizeUrl(tokenUrl: string): string {
+  const override = (config.sac.oauthAuthUrl || '').trim() || (process.env['SAC_OAUTH_AUTH_URL'] || '').trim();
+  if (override) return override;
+
   // Typical pattern: .../oauth/token -> .../oauth/authorize
-  if (tokenUrl.endsWith('/oauth/token')) {
-    return tokenUrl.replace(/\/oauth\/token$/, '/oauth/authorize');
-  }
+  if (tokenUrl.endsWith('/oauth/token')) return tokenUrl.replace(/\/oauth\/token$/, '/oauth/authorize');
+
   // Fallback: best effort
   return tokenUrl.replace(/token$/, 'authorize');
 }
+
+router.get('/debug', (req, res) => {
+  const { tokenUrl } = deriveOAuthTokenUrl();
+  const authorizationUrl = deriveOAuthAuthorizeUrl(tokenUrl);
+
+  const redirectUri =
+    (process.env['SAC_REDIRECT_URI'] || '').trim() ||
+    (config.sac.redirectUri || '').trim() ||
+    `${getRequestBaseUrl(req)}/oauth/callback`;
+
+  return res.json({
+    tenantUrl: config.sac.tenantUrl,
+    tokenUrl,
+    authorizationUrl,
+    redirectUri,
+    note: 'BASIS must register redirectUri EXACTLY in SAC OAuth client. Use /oauth/login after that.',
+  });
+});
 
 /**
  * GET /oauth/login
@@ -81,7 +110,7 @@ router.get('/login', async (req, res) => {
     }
 
     const { tokenUrl } = deriveOAuthTokenUrl();
-    const authorizationUrl = (process.env['SAC_OAUTH_AUTH_URL'] || '').trim() || deriveOAuthAuthorizeUrl(tokenUrl);
+    const authorizationUrl = deriveOAuthAuthorizeUrl(tokenUrl);
 
     // Prefer explicit redirect URI, otherwise infer from current request.
     const redirectUri =
