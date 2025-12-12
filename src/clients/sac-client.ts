@@ -813,6 +813,29 @@ export class SACClient {
       }
       logger.error('========================================');
 
+      // Include SAC response details in the thrown error (helps troubleshooting 401/403/404).
+      if (error?.response) {
+        let responseBodyPreview = '';
+        try {
+          const data = error.response.data;
+          if (typeof data === 'string') {
+            responseBodyPreview = data.slice(0, 2000);
+          } else if (data !== undefined) {
+            responseBodyPreview = JSON.stringify(data).slice(0, 2000);
+          }
+        } catch {
+          // ignore
+        }
+
+        const details = [
+          `status=${error.response.status}`,
+          error.response.statusText ? `statusText=${error.response.statusText}` : null,
+          responseBodyPreview ? `body=${responseBodyPreview}` : null,
+        ].filter(Boolean).join(' ');
+
+        throw new SACError(`Failed to trigger Multi-Action: ${error.message} (${details})`);
+      }
+
       throw new SACError(`Failed to trigger Multi-Action: ${error.message}`);
     }
   }
