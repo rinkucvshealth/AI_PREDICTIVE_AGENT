@@ -49,7 +49,15 @@ export class SACClient {
       if (token) {
         requestConfig.headers.Authorization = `Bearer ${token}`;
       } else {
-        logger.error('⚠️  No OAuth token available - request will fail with 401');
+        const message = requireUserContext
+          ? 'No user-context OAuth token available. Multi-Action API does NOT support client_credentials. Configure one of: SAC_REFRESH_TOKEN, SAC_SAML_ASSERTION, SAC_AUTHORIZATION_CODE+SAC_REDIRECT_URI, or SAC_USERNAME+SAC_PASSWORD.'
+          : 'No OAuth token available - request will fail with 401';
+        logger.error(`⚠️  ${message}`);
+
+        // Fail fast for Multi-Action requests to avoid confusing SAC 401s.
+        if (requireUserContext) {
+          throw new SACError(message);
+        }
       }
       return requestConfig;
     });
@@ -774,6 +782,8 @@ export class SACClient {
           logger.error('     ✅ REQUIRED: Interactive Usage or SAML Bearer Assertion');
           logger.error('  2. ❌ OAuth client lacks Multi-Action execution scopes');
           logger.error('  3. ❌ Token is not for a real SAC user with permissions');
+          logger.error('  4. ❌ Multi-Action is not enabled for external API access');
+          logger.error('     ✅ REQUIRED: Multi-Action setting "Allow External API Access"');
           logger.error('');
           logger.error('🔧 SOLUTION: Create SAC-native OAuth client');
           logger.error('   Location: SAC → System → Administration → OAuth Clients');
@@ -787,6 +797,9 @@ export class SACClient {
           logger.error('     • Access model: ' + this.modelId);
           logger.error('     • Execute multi-action: ' + this.multiActionId);
           logger.error('');
+          logger.error('📌 SAP Note 3407120 checkpoint:');
+          logger.error('   - Use CSRF endpoint: <tenant-url>/api/v1/csrf');
+          logger.error('   - Multi Action API does NOT support client_credentials tokens');
           logger.error('📖 References:');
           logger.error('   • AUTHORIZATION_ROOT_CAUSE_ANALYSIS.md');
           logger.error('   • BASIS_TEAM_ACTION_GUIDE.md');
