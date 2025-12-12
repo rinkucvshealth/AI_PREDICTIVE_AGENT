@@ -78,6 +78,11 @@ export interface Config {
   };
   app: {
     nodeEnv: string;
+    /**
+     * Human-friendly environment label (e.g., QA/PROD).
+     * This is intentionally separate from NODE_ENV which is often "production" in Cloud Foundry.
+     */
+    environmentLabel: string;
     logLevel: string;
     defaultForecastPeriod: number;
     defaultVersionPrefix: string;

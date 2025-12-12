@@ -160,7 +160,7 @@ app.listen(PORT, () => {
   logger.info(`🚀 SAC Predictive Agent running on port ${PORT}`);
   logger.info(`📊 SAC Tenant: ${config.sac.tenantUrl}`);
   logger.info(`📁 Model: ${config.sac.modelId}`);
-  logger.info(`🌍 Environment: ${config.app.nodeEnv}`);
+  logger.info(`🌍 Environment: ${config.app.environmentLabel} (NODE_ENV=${config.app.nodeEnv})`);
   logger.info(`🔗 API: http://localhost:${PORT}/api/forecast/query`);
 });
 
