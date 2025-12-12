@@ -59,6 +59,7 @@ export interface Config {
     clientId: string;
     clientSecret: string;
     oauthTokenUrl?: string;
+    oauthAuthUrl?: string;
     modelId: string;
     multiActionId: string;
     storyId?: string;

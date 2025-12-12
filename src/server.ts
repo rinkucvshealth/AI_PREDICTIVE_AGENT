@@ -5,6 +5,7 @@ import path from 'path';
 import { config } from './config';
 import { logger } from './utils/logger';
 import forecastRouter from './routes/forecast';
+import oauthRouter from './routes/oauth';
 
 const app = express();
 
@@ -68,6 +69,9 @@ app.use('/api/', apiKeyAuth);
 
 // API routes
 app.use('/api/forecast', forecastRouter);
+
+// OAuth helper routes (for acquiring refresh tokens via Authorization Code flow)
+app.use('/oauth', oauthRouter);
 
 // Serve widget files (no authentication required for SAC to load them)
 // In production (CF), files are in ../public relative to dist/
