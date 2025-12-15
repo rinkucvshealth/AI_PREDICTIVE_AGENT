@@ -731,16 +731,28 @@ export class SACClient {
             message: `Multi-Action execution started via ${endpoint.name}`,
           };
         } catch (error: any) {
-          logger.warn(`❌ ${endpoint.name} failed: ${error.response?.status || error.message}`);
+          const status = error.response?.status;
+          logger.warn(`❌ ${endpoint.name} failed: ${status || error.message}`);
           lastError = error;
           
+          // Log detailed error for 500 errors (SAC internal errors)
+          if (status === 500) {
+            logger.error('  → SAC Internal Server Error (500) Details:');
+            if (error.response?.data) {
+              logger.error('  → Response Body:', JSON.stringify(error.response.data, null, 2));
+            }
+            logger.warn('  → This usually means: user lacks permission, Multi-Action script error, or invalid parameters');
+            logger.warn('  → Trying next endpoint...');
+            continue;
+          }
+          
           // Don't retry on certain error codes
-          if (error.response?.status === 403 || error.response?.status === 401) {
+          if (status === 403 || status === 401) {
             logger.warn('  → Authentication/Authorization error, trying next endpoint...');
             continue;
           }
           
-          if (error.response?.status === 404) {
+          if (status === 404) {
             logger.warn('  → Endpoint not found, trying next endpoint...');
             continue;
           }
