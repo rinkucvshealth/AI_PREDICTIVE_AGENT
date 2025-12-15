@@ -16,6 +16,10 @@ applications:
     SAC_MODEL_ID: PRDA_PL_PLAN
     ALLOWED_ORIGIN: https://cvs-pharmacy-q.us10.hcs.cloud.sap
     LOG_LEVEL: info
-    # Credentials are set via environment variables
-    # Use: cf set-env ai-predictive-agent <VAR> <VALUE>
     SAC_MULTI_ACTION_ID: E5280280114D3785596849C3D321B820
+    # Sensitive credentials are set via cf set-env (NOT in manifest.yml)
+    # SAC_CLIENT_ID: set via cf set-env
+    # SAC_CLIENT_SECRET: set via cf set-env
+    # SAC_REFRESH_TOKEN: set via cf set-env
+    # OpenAI credentials
+    # OPENAI_API_KEY: set via cf set-env
