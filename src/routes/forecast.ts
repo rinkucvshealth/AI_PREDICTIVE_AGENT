@@ -190,4 +190,28 @@ router.get('/list-multiactions', async (_req: express.Request, res: express.Resp
   }
 });
 
+/**
+ * POST /api/forecast/test-multiaction-post
+ * Test POST request to Multi-Action endpoint with various header combinations
+ */
+router.post('/test-multiaction-post', async (_req: express.Request, res: express.Response) => {
+  try {
+    logger.info('🧪 Testing Multi-Action POST request...');
+    
+    const result = await sacClient.testMultiActionPost();
+    
+    return res.json({
+      success: true,
+      result,
+    });
+  } catch (error: any) {
+    logger.error('Multi-Action POST test failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Multi-Action POST test failed',
+      error: error.message,
+    });
+  }
+});
+
 export default router;
