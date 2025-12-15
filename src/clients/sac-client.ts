@@ -679,8 +679,12 @@ export class SACClient {
         },
       ];
 
-      // Prepare headers with CSRF token and cookies (if available)
-      const headers: any = {};
+      // Prepare headers with CSRF token, cookies, and browser-like headers
+      // This combination proved to work in testing (gets past 403 to actual SAC processing)
+      const headers: any = {
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json, text/plain, */*',
+      };
       
       if (csrfToken) {
         headers['x-csrf-token'] = csrfToken;
@@ -689,7 +693,7 @@ export class SACClient {
         logger.warn(`  ⚠️  No CSRF token available, proceeding without it`);
       }
 
-      // Add cookies to the request
+      // Add cookies to the request (CRITICAL for authentication)
       if (this.cookies.length > 0) {
         headers['Cookie'] = this.cookies.map(cookie => {
           // Extract just the key=value part before the first semicolon
@@ -697,6 +701,10 @@ export class SACClient {
         }).join('; ');
         logger.info(`  ✓ Using ${this.cookies.length} session cookie(s)`);
       }
+      
+      // Add browser-like headers to help SAC process the request
+      headers['Origin'] = this.tenantUrl;
+      headers['Referer'] = this.tenantUrl + '/';
 
       // Try each endpoint in order
       let lastError: any = null;
