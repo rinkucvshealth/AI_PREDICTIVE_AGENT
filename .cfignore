@@ -11,9 +11,9 @@ node_modules/
 .env.local
 .env.*.local
 
-# Source TypeScript files (we only need compiled JS)
-# Commented out - we need to include dist/
-# src/
+# Source TypeScript files (we deploy compiled dist/ folder)
+src/
+tsconfig.json
 
 # Editor files
 .idea/
@@ -47,6 +47,15 @@ SETUP_GUIDE.md
 SAC_MULTIACTION_TEMPLATE.md
 DEPLOYMENT_STATUS.md
 QUICK_START.sh
+*TROUBLESHOOTING.md
+*DIAGNOSTIC*.md
+*INSTRUCTIONS.md
+*SUMMARY.md
+BASIS_TEAM_ACTION_GUIDE.md
+CHECKLIST_IMPLEMENTATION_SUMMARY.md
+PASSWORD_GRANT_IMPLEMENTATION.md
+SOLUTION_NEXT_STEPS.md
 
 # Build artifacts we don't need
 *.tsbuildinfo
+core
