@@ -881,6 +881,189 @@ export class SACClient {
       throw new SACError(`Failed to get model info: ${error.message}`);
     }
   }
+
+  /**
+   * Discover available SAC API endpoints
+   * Tests various endpoints to find what's available in the environment
+   */
+  async discoverEndpoints(): Promise<any> {
+    logger.info('🔍 Starting endpoint discovery...');
+    logger.info('========================================');
+
+    const endpointsToTest = [
+      // Multi-Action endpoints
+      { name: 'Multi-Actions List', path: '/api/v1/multiActions', method: 'GET' },
+      { name: 'Multi-Action Details', path: `/api/v1/multiActions/${this.multiActionId}`, method: 'GET' },
+      { name: 'Multi-Action Executions', path: `/api/v1/multiActions/${this.multiActionId}/executions`, method: 'GET' },
+      
+      // Planning Model endpoints
+      { name: 'Planning Models List', path: '/api/v1/dataimport/planningModel', method: 'GET' },
+      { name: 'Planning Model Details', path: `/api/v1/dataimport/planningModel/${this.modelId}`, method: 'GET' },
+      { name: 'Planning Model Jobs', path: `/api/v1/dataimport/planningModel/${this.modelId}/jobs`, method: 'GET' },
+      { name: 'Planning Model Multi-Actions', path: `/api/v1/dataimport/planningModel/${this.modelId}/multiActions`, method: 'GET' },
+      { name: 'Planning Model Multi-Action Runs', path: `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`, method: 'GET' },
+      
+      // Model endpoints
+      { name: 'Models List', path: '/api/v1/models', method: 'GET' },
+      { name: 'Model Details', path: `/api/v1/models/${this.modelId}`, method: 'GET' },
+      
+      // Data Import endpoints
+      { name: 'Data Import Service', path: '/api/v1/dataimport', method: 'GET' },
+      
+      // Stories/Applications endpoints
+      { name: 'Stories List', path: '/api/v1/stories', method: 'GET' },
+      { name: 'Applications List', path: '/api/v1/applications', method: 'GET' },
+    ];
+
+    const results = [];
+
+    for (const endpoint of endpointsToTest) {
+      try {
+        logger.info(`Testing: ${endpoint.name} (${endpoint.method} ${endpoint.path})`);
+        
+        const response = await this.axiosClient.request({
+          method: endpoint.method.toLowerCase() as any,
+          url: endpoint.path,
+          validateStatus: () => true, // Accept all status codes
+          timeout: 10000,
+        });
+
+        const status = response.status;
+        const available = status >= 200 && status < 400;
+        
+        results.push({
+          name: endpoint.name,
+          path: endpoint.path,
+          method: endpoint.method,
+          status,
+          available,
+          message: available ? '✅ Available' : 
+                  status === 401 ? '🔒 Requires authentication/authorization' :
+                  status === 404 ? '❌ Not found' :
+                  status === 403 ? '🚫 Forbidden' :
+                  `⚠️ Status ${status}`,
+          responsePreview: available && response.data ? 
+            JSON.stringify(response.data).substring(0, 200) + (JSON.stringify(response.data).length > 200 ? '...' : '') :
+            null,
+        });
+
+        logger.info(`  → Status: ${status} - ${results[results.length - 1].message}`);
+        
+      } catch (error: any) {
+        results.push({
+          name: endpoint.name,
+          path: endpoint.path,
+          method: endpoint.method,
+          status: error.response?.status || 'error',
+          available: false,
+          message: `❌ Error: ${error.message}`,
+          error: error.message,
+        });
+        logger.info(`  → Error: ${error.message}`);
+      }
+    }
+
+    logger.info('========================================');
+    logger.info('🔍 Discovery Summary:');
+    const availableCount = results.filter(r => r.available).length;
+    logger.info(`  ✅ Available: ${availableCount}/${results.length}`);
+    logger.info(`  ❌ Not Available: ${results.length - availableCount}/${results.length}`);
+    logger.info('========================================');
+
+    return {
+      summary: {
+        total: results.length,
+        available: availableCount,
+        notAvailable: results.length - availableCount,
+      },
+      endpoints: results,
+      recommendations: this.generateEndpointRecommendations(results),
+    };
+  }
+
+  /**
+   * Generate recommendations based on discovery results
+   */
+  private generateEndpointRecommendations(results: any[]): string[] {
+    const recommendations = [];
+
+    const multiActionEndpoints = results.filter(r => r.name.toLowerCase().includes('multi-action'));
+    const availableMultiAction = multiActionEndpoints.filter(r => r.available);
+
+    if (availableMultiAction.length === 0) {
+      recommendations.push('⚠️ No Multi-Action endpoints are available. Check:');
+      recommendations.push('   1. Multi-Action ID is correct: ' + this.multiActionId);
+      recommendations.push('   2. Multi-Action exists in SAC');
+      recommendations.push('   3. Multi-Action has "Allow External API Access" enabled');
+      recommendations.push('   4. User has permissions to execute the Multi-Action');
+    } else {
+      recommendations.push('✅ Found working Multi-Action endpoints:');
+      availableMultiAction.forEach(e => recommendations.push(`   • ${e.path}`));
+    }
+
+    const modelEndpoints = results.filter(r => r.name.toLowerCase().includes('model') && r.available);
+    if (modelEndpoints.length > 0) {
+      recommendations.push('✅ Model endpoints are working - model ID is correct');
+    }
+
+    const authIssues = results.filter(r => r.status === 401 || r.status === 403);
+    if (authIssues.length > 0) {
+      recommendations.push(`⚠️ ${authIssues.length} endpoint(s) have auth issues - check OAuth scopes`);
+    }
+
+    return recommendations;
+  }
+
+  /**
+   * List all Multi-Actions in the planning model
+   */
+  async listMultiActions(): Promise<any> {
+    try {
+      logger.info('📋 Listing Multi-Actions...');
+      logger.info('========================================');
+
+      // Try different endpoints to list Multi-Actions
+      const endpoints = [
+        `/api/v1/multiActions`,
+        `/api/v1/dataimport/planningModel/${this.modelId}/multiActions`,
+        `/api/v1/models/${this.modelId}/multiActions`,
+      ];
+
+      for (const endpoint of endpoints) {
+        try {
+          logger.info(`Trying: ${endpoint}`);
+          const response = await this.axiosClient.get(endpoint, {
+            validateStatus: (status) => status === 200,
+          });
+
+          logger.info(`✅ Success! Found Multi-Actions at: ${endpoint}`);
+          logger.info('Multi-Actions:', JSON.stringify(response.data, null, 2));
+          logger.info('========================================');
+
+          return {
+            endpoint,
+            multiActions: response.data,
+            count: Array.isArray(response.data) ? response.data.length : 
+                   response.data.multiActions ? response.data.multiActions.length : 'unknown',
+          };
+        } catch (error: any) {
+          logger.info(`  → Failed (${error.response?.status || error.message}), trying next...`);
+          continue;
+        }
+      }
+
+      logger.warn('❌ Could not find Multi-Actions list endpoint');
+      logger.info('========================================');
+      
+      return {
+        error: 'No Multi-Actions list endpoint found',
+        suggestion: 'The Multi-Action API might not be enabled or accessible in this environment',
+      };
+    } catch (error: any) {
+      logger.error('Failed to list Multi-Actions:', error.message);
+      throw new SACError(`Failed to list Multi-Actions: ${error.message}`);
+    }
+  }
 }
 
 // Export singleton instance
