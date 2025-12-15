@@ -26,8 +26,8 @@ npm run build
 cf push
 
 # 3. Set credentials via environment variables
-cf set-env ai-predictive-agent SAC_CLIENT_ID "sb-d0a25928-2a38-4862-ab82-bc4f8529aab7!b563143|client!b655"
-cf set-env ai-predictive-agent SAC_CLIENT_SECRET "9a81d84e-1277-4ccb-95fd-7db0f60f15e7\$KytCvQeVWDy5JrXqAS0fLrKFhPn9s1xumtyXc9jNgeA="
+cf set-env ai-predictive-agent SAC_CLIENT_ID "sb-2c3a1567-6d9a-4df1-8abd-def112306fe5!b563143|client!b655"
+cf set-env ai-predictive-agent SAC_CLIENT_SECRET "068de6c1-3916-42b5-9d43-587039aea58a\$KQyTpHTYuReSBwMLR2698qeGP4HL2e0cxZ4FVNq544o="
 cf set-env ai-predictive-agent SAC_REFRESH_TOKEN "5c91ed78d1814ec0a07373bf93c0fdf5-r"
 cf set-env ai-predictive-agent OPENAI_API_KEY "your-openai-key"
 
@@ -60,8 +60,8 @@ cf env ai-predictive-agent | grep -E "SAC_CLIENT_ID|SAC_CLIENT_SECRET|SAC_REFRES
 
 Expected output:
 ```
-SAC_CLIENT_ID: sb-d0a25928-2a38-4862-ab82-bc4f8529aab7!b563143|client!b655
-SAC_CLIENT_SECRET: 9a81d84e-1277-4ccb-95fd-7db0f60f15e7$KytCvQeVWDy5JrXqAS0fLrKFhPn9s1xumtyXc9jNgeA=
+SAC_CLIENT_ID: sb-2c3a1567-6d9a-4df1-8abd-def112306fe5!b563143|client!b655
+SAC_CLIENT_SECRET: 068de6c1-3916-42b5-9d43-587039aea58a$KQyTpHTYuReSBwMLR2698qeGP4HL2e0cxZ4FVNq544o=
 SAC_REFRESH_TOKEN: 5c91ed78d1814ec0a07373bf93c0fdf5-r
 ```
 
