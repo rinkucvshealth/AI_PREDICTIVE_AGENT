@@ -141,4 +141,53 @@ router.get('/model-info', async (_req: express.Request, res: express.Response) =
   }
 });
 
+/**
+ * GET /api/forecast/discover-endpoints
+ * Diagnostic endpoint to discover available SAC API endpoints
+ */
+router.get('/discover-endpoints', async (_req: express.Request, res: express.Response) => {
+  try {
+    logger.info('🔍 Discovering available SAC API endpoints...');
+    
+    const results = await sacClient.discoverEndpoints();
+    
+    return res.json({
+      success: true,
+      message: 'Endpoint discovery completed',
+      results,
+    });
+  } catch (error: any) {
+    logger.error('Endpoint discovery failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Endpoint discovery failed',
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/forecast/list-multiactions
+ * List all Multi-Actions available in the planning model
+ */
+router.get('/list-multiactions', async (_req: express.Request, res: express.Response) => {
+  try {
+    logger.info('📋 Listing Multi-Actions...');
+    
+    const multiActions = await sacClient.listMultiActions();
+    
+    return res.json({
+      success: true,
+      multiActions,
+    });
+  } catch (error: any) {
+    logger.error('Failed to list Multi-Actions:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to list Multi-Actions',
+      error: error.message,
+    });
+  }
+});
+
 export default router;
