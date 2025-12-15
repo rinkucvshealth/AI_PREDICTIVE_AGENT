@@ -36,6 +36,9 @@ export class SACClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        // Required headers to bypass SAC approuter and access API directly
+        'X-Requested-With': 'XMLHttpRequest', // Indicates this is an API request, not browser
+        'X-CSRF-Token': 'Fetch', // Pre-fetch CSRF token
       },
       timeout: 60000, // 60 second timeout for multi-actions
       withCredentials: true, // Enable cookie handling
@@ -1062,6 +1065,143 @@ export class SACClient {
     } catch (error: any) {
       logger.error('Failed to list Multi-Actions:', error.message);
       throw new SACError(`Failed to list Multi-Actions: ${error.message}`);
+    }
+  }
+
+  /**
+   * Test Multi-Action POST with different header combinations
+   * Helps diagnose why POST returns 404 while GET returns 200
+   */
+  async testMultiActionPost(): Promise<any> {
+    try {
+      logger.info('🧪 Testing Multi-Action POST request...');
+      logger.info('========================================');
+
+      const testEndpoint = `/api/v1/multiActions/${this.multiActionId}/executions`;
+      const testBody = {
+        parameterValues: {
+          GLAccount: "500100",
+          ForecastPeriod: 6,
+          VersionName: "Test_POST"
+        }
+      };
+
+      // Get CSRF token and cookies first
+      const csrfToken = await this.fetchCsrfToken(true);
+      
+      const headerCombinations = [
+        {
+          name: 'Standard API Headers',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          }
+        },
+        {
+          name: 'With CSRF Token',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'x-csrf-token': csrfToken || 'Fetch',
+          }
+        },
+        {
+          name: 'With Cookies',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'x-csrf-token': csrfToken || 'Fetch',
+            'Cookie': this.cookies.map(c => c.split(';')[0]).join('; '),
+          }
+        },
+        {
+          name: 'Browser-like Headers',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest',
+            'x-csrf-token': csrfToken || 'Fetch',
+            'Cookie': this.cookies.map(c => c.split(';')[0]).join('; '),
+            'Origin': this.tenantUrl,
+            'Referer': this.tenantUrl + '/',
+          }
+        },
+      ];
+
+      const results = [];
+
+      for (const combo of headerCombinations) {
+        try {
+          logger.info(`Testing: ${combo.name}`);
+          logger.info(`  Headers: ${JSON.stringify(combo.headers, null, 2)}`);
+          
+          const response = await this.axiosClient.post(
+            testEndpoint,
+            testBody,
+            {
+              headers: combo.headers,
+              _requireUserContext: true,
+              validateStatus: () => true, // Accept all status codes
+            } as any
+          );
+
+          const isHtmlResponse = typeof response.data === 'string' && response.data.includes('<html>');
+          
+          results.push({
+            name: combo.name,
+            status: response.status,
+            statusText: response.statusText,
+            isHtmlRedirect: isHtmlResponse,
+            success: response.status >= 200 && response.status < 300 && !isHtmlResponse,
+            message: isHtmlResponse ? '❌ Got HTML redirect (approuter intercepted)' :
+                    response.status >= 200 && response.status < 300 ? '✅ SUCCESS!' :
+                    response.status === 404 ? '❌ 404 Not Found' :
+                    response.status === 401 ? '❌ 401 Unauthorized' :
+                    response.status === 403 ? '❌ 403 Forbidden' :
+                    `⚠️ Status ${response.status}`,
+            responsePreview: typeof response.data === 'string' ? 
+              response.data.substring(0, 200) + '...' :
+              JSON.stringify(response.data).substring(0, 200) + '...',
+          });
+
+          logger.info(`  Result: ${results[results.length - 1].message}`);
+          
+        } catch (error: any) {
+          results.push({
+            name: combo.name,
+            status: error.response?.status || 'error',
+            error: error.message,
+            message: `❌ Error: ${error.message}`,
+          });
+          logger.info(`  Result: Error - ${error.message}`);
+        }
+      }
+
+      logger.info('========================================');
+      logger.info('🧪 POST Test Summary:');
+      const successCount = results.filter(r => r.success).length;
+      logger.info(`  ✅ Success: ${successCount}/${results.length}`);
+      logger.info('========================================');
+
+      return {
+        endpoint: testEndpoint,
+        testBody,
+        results,
+        summary: {
+          total: results.length,
+          success: successCount,
+          failed: results.length - successCount,
+        },
+        recommendation: successCount > 0 ? 
+          `✅ Found working header combination: ${results.find(r => r.success)?.name}` :
+          '❌ No header combination worked. May need different API approach.',
+      };
+    } catch (error: any) {
+      logger.error('POST test failed:', error.message);
+      throw new SACError(`POST test failed: ${error.message}`);
     }
   }
 }
