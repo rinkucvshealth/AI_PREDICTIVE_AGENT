@@ -34,7 +34,7 @@ export interface ParsedForecastQuery {
 
 export interface SACMultiActionRequest {
   parameters: {
-    VersionToSaveForecast?: string;
+    // No parameters needed - all values are hardcoded in the Multi-Action
     [key: string]: any;
   };
 }

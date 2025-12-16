@@ -38,25 +38,23 @@ router.post('/query', async (req: express.Request, res: express.Response) => {
 
     logger.info('Query validated as forecast request');
 
-    // Step 2: Trigger SAC Multi-Action with hardcoded version parameter
+    // Step 2: Trigger SAC Multi-Action (no parameters - all hardcoded in SAC)
     const multiActionRequest = {
-      parameters: {
-        VersionToSaveForecast: 'aipredictive',
-      },
+      parameters: {},  // No parameters needed - all values hardcoded in Multi-Action
     };
 
-    logger.info('Triggering SAC Multi-Action with parameters:', multiActionRequest.parameters);
+    logger.info('Triggering SAC Multi-Action (no parameters - all values hardcoded)');
 
     const multiActionResponse = await sacClient.triggerMultiAction(multiActionRequest);
 
     // Step 3: Return response
-    const summary = `AI Predictive forecast initiated successfully → Version: aipredictive`;
+    const summary = `Forecast initiated successfully! Multi-Action is running with hardcoded parameters.`;
 
     return res.json({
       success: true,
       summary,
       details: {
-        versionName: 'aipredictive',
+        versionName: '01_JAN',  // Hardcoded in Multi-Action
         multiActionStatus: multiActionResponse.status,
         executionId: multiActionResponse.executionId,
       },
