@@ -710,28 +710,54 @@ export class SACClient {
       // Format: /api/v1/multiActions/<packageId>:<objectId>/executions
       // Reference: https://help.sap.com
       
+      // Try multiple parameter formats - SAC might reject empty objects
       const endpoints = [
         {
-          name: 'Multi-Action Executions API (SAP Recommended)',
+          name: 'Multi-Action Executions API (SAP Recommended) - No parameterValues field',
+          url: `/api/v1/multiActions/${this.multiActionId}/executions`,
+          body: {},  // Omit parameterValues entirely
+        },
+        {
+          name: 'Multi-Action Executions API - Empty parameterValues object',
           url: `/api/v1/multiActions/${this.multiActionId}/executions`,
           body: {
-            parameterValues: {},  // No parameters - all values hardcoded in Multi-Action
+            parameterValues: {},
           },
         },
         {
-          name: 'Data Import Job (Fallback)',
+          name: 'Multi-Action Executions API - Null parameterValues',
+          url: `/api/v1/multiActions/${this.multiActionId}/executions`,
+          body: {
+            parameterValues: null,
+          },
+        },
+        {
+          name: 'Data Import Job (Fallback) - No parameters field',
           url: `/api/v1/dataimport/planningModel/${this.modelId}/jobs`,
           body: {
             type: 'MULTIACTION',
             multiActionId: this.multiActionId,
-            parameters: {},  // No parameters - all values hardcoded in Multi-Action
           },
         },
         {
-          name: 'Planning Model Multi-Action Runs (Fallback)',
+          name: 'Data Import Job (Fallback) - Empty parameters',
+          url: `/api/v1/dataimport/planningModel/${this.modelId}/jobs`,
+          body: {
+            type: 'MULTIACTION',
+            multiActionId: this.multiActionId,
+            parameters: {},
+          },
+        },
+        {
+          name: 'Planning Model Multi-Action Runs (Fallback) - No parameterValues',
+          url: `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`,
+          body: {},
+        },
+        {
+          name: 'Planning Model Multi-Action Runs (Fallback) - Empty parameterValues',
           url: `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`,
           body: {
-            parameterValues: {},  // No parameters - all values hardcoded in Multi-Action
+            parameterValues: {},
           },
         },
       ];
