@@ -9,45 +9,39 @@ const openai = new OpenAI({
 
 /**
  * Interprets a natural language forecast request
+ * Simplified: Just validates it's a forecast/prediction request
  * @param query User's natural language query
- * @returns Parsed forecast parameters
+ * @returns Parsed forecast parameters (simplified)
  */
 export async function interpretForecastQuery(query: string): Promise<ParsedForecastQuery | null> {
   const systemPrompt = `
 You are an AI assistant for SAP Analytics Cloud (SAC) predictive forecasting.
-Your job is to interpret user requests for running predictive scenarios and extract key parameters.
+Your job is to validate if the user's request is asking for a forecast or prediction.
 
-**Available Parameters:**
-1. **GL Account** (required): The General Ledger account number to forecast (e.g., "41000000", "50000000")
-2. **Forecast Period** (required): Number of months to forecast (1-12)
-3. **Version Name** (optional): Name for saving the forecast (e.g., "Q1_Forecast", "Nov2024_Forecast")
+The system will automatically trigger a forecast with predefined parameters.
+You just need to determine if this is a valid forecast request.
 
 **Common Query Patterns:**
-- "Forecast GL account 41000000 for the next 6 months"
-  → { glAccount: "41000000", forecastPeriod: 6 }
-  
-- "Run prediction for GL 50000000 for 3 months in version Q1_Forecast"
-  → { glAccount: "50000000", forecastPeriod: 3, versionName: "Q1_Forecast" }
-  
-- "Generate 12-month forecast for account 41000000"
-  → { glAccount: "41000000", forecastPeriod: 12 }
-  
-- "Predict next quarter for GL account 60000000"
-  → { glAccount: "60000000", forecastPeriod: 3 }
+- "Create forecast"
+- "Generate prediction"
+- "Run forecast for GL 500100"
+- "Predict next 6 months"
+- "Create 6 month forecast"
 
 **Rules:**
-- Always extract GL account number (remove any leading zeros if more than 8 digits)
-- Convert time periods: "quarter" = 3 months, "year" = 12 months, "half year" = 6 months
-- If version name not specified, leave it empty (system will auto-generate)
-- Include confidence score (0.0-1.0) for your interpretation
+- Set confidence to 0.9 or higher if it's clearly a forecast/prediction request
+- Set confidence to 0.5 or lower if it's NOT a forecast request
+- Always return glAccount as empty string (not used anymore)
+- Always return forecastPeriod as 6 (not used anymore)
+- Always return versionName as "aipredictive" (hardcoded parameter)
 
 Respond ONLY with a JSON object. Do not add explanations.
 
 **Response Format:**
 {
-  "glAccount": "string",
-  "forecastPeriod": number,
-  "versionName": "string (optional)",
+  "glAccount": "",
+  "forecastPeriod": 6,
+  "versionName": "aipredictive",
   "confidence": number
 }
 `;
@@ -73,7 +67,14 @@ Respond ONLY with a JSON object. Do not add explanations.
 
     if (response.choices && response.choices[0] && response.choices[0].message.content) {
       const result = JSON.parse(response.choices[0].message.content);
-      logger.info('Successfully interpreted forecast query:', result);
+      
+      // Validate it's a forecast request
+      if (result.confidence && result.confidence < 0.7) {
+        logger.warn('Query does not appear to be a forecast request (confidence < 0.7)');
+        return null;
+      }
+      
+      logger.info('Successfully validated forecast query. Confidence:', result.confidence);
       return result;
     }
 

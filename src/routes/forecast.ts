@@ -10,6 +10,7 @@ const router = express.Router();
 /**
  * POST /api/forecast/query
  * Main endpoint for natural language forecast requests
+ * Simplified: Multi-Action now uses hardcoded parameters, only needs version name
  */
 router.post('/query', async (req: express.Request, res: express.Response) => {
   try {
@@ -24,7 +25,7 @@ router.post('/query', async (req: express.Request, res: express.Response) => {
 
     logger.info(`Received forecast query: "${query}"`);
 
-    // Step 1: Interpret the query using OpenAI
+    // Step 1: Interpret the query using OpenAI (just to validate it's a forecast request)
     const interpretation = await interpretForecastQuery(query);
 
     if (!interpretation) {
@@ -35,28 +36,12 @@ router.post('/query', async (req: express.Request, res: express.Response) => {
       } as ForecastResponse);
     }
 
-    logger.debug('Query interpretation:', interpretation);
+    logger.info('Query validated as forecast request');
 
-    // Validate required parameters
-    if (!interpretation.glAccount || !interpretation.forecastPeriod) {
-      return res.status(400).json({
-        success: false,
-        summary: 'Could not extract GL account or forecast period from your query.',
-        error: 'Missing required parameters: glAccount or forecastPeriod',
-        details: interpretation as any,
-      } as ForecastResponse);
-    }
-
-    // Generate version name if not provided
-    const versionName = interpretation.versionName || 
-      `${config.app.defaultVersionPrefix}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
-
-    // Step 2: Trigger SAC Multi-Action
+    // Step 2: Trigger SAC Multi-Action with hardcoded version parameter
     const multiActionRequest = {
       parameters: {
-        GLAccount: interpretation.glAccount,
-        ForecastPeriod: interpretation.forecastPeriod,
-        VersionName: versionName,
+        VersionToSaveForecast: 'aipredictive',
       },
     };
 
@@ -65,17 +50,15 @@ router.post('/query', async (req: express.Request, res: express.Response) => {
     const multiActionResponse = await sacClient.triggerMultiAction(multiActionRequest);
 
     // Step 3: Return response
-    const summary = `Forecast initiated for GL Account ${interpretation.glAccount} ` +
-      `(${interpretation.forecastPeriod} months) → Version: ${versionName}`;
+    const summary = `AI Predictive forecast initiated successfully → Version: aipredictive`;
 
     return res.json({
       success: true,
       summary,
       details: {
-        glAccount: interpretation.glAccount,
-        forecastPeriod: interpretation.forecastPeriod,
-        versionName,
+        versionName: 'aipredictive',
         multiActionStatus: multiActionResponse.status,
+        executionId: multiActionResponse.executionId,
       },
       sessionId: sessionId || 'default',
     } as ForecastResponse);
