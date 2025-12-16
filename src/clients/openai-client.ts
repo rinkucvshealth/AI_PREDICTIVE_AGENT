@@ -9,31 +9,30 @@ const openai = new OpenAI({
 
 /**
  * Interprets a natural language forecast request
- * Simplified: Just validates it's a forecast/prediction request
+ * Simplified: Just validates if the user wants to run a forecast
  * @param query User's natural language query
- * @returns Parsed forecast parameters (simplified)
+ * @returns Parsed forecast parameters (just confidence validation)
  */
 export async function interpretForecastQuery(query: string): Promise<ParsedForecastQuery | null> {
   const systemPrompt = `
 You are an AI assistant for SAP Analytics Cloud (SAC) predictive forecasting.
 Your job is to validate if the user's request is asking for a forecast or prediction.
 
-The system will automatically trigger a forecast with predefined parameters.
-You just need to determine if this is a valid forecast request.
+All forecast parameters are hardcoded in SAC. You just need to validate if this is a forecast request.
 
 **Common Query Patterns:**
 - "Create forecast"
 - "Generate prediction"
-- "Run forecast for GL 500100"
-- "Predict next 6 months"
-- "Create 6 month forecast"
+- "Run forecast"
+- "Make a forecast"
+- "Execute forecast"
 
 **Rules:**
 - Set confidence to 0.9 or higher if it's clearly a forecast/prediction request
 - Set confidence to 0.5 or lower if it's NOT a forecast request
-- Always return glAccount as empty string (not used anymore)
-- Always return forecastPeriod as 6 (not used anymore)
-- Always return versionName as "aipredictive" (hardcoded parameter)
+- Always return glAccount as empty string (not used)
+- Always return forecastPeriod as 6 (not used)
+- Always return versionName as "01_JAN" (hardcoded in SAC Multi-Action)
 
 Respond ONLY with a JSON object. Do not add explanations.
 
@@ -41,7 +40,7 @@ Respond ONLY with a JSON object. Do not add explanations.
 {
   "glAccount": "",
   "forecastPeriod": 6,
-  "versionName": "aipredictive",
+  "versionName": "01_JAN",
   "confidence": number
 }
 `;

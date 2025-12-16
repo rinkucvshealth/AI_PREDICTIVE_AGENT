@@ -643,7 +643,7 @@ export class SACClient {
       logger.info('========================================');
       logger.info(`Multi-Action ID: ${this.multiActionId}`);
       logger.info(`Model ID: ${this.modelId}`);
-      logger.info(`Parameters:`, request.parameters);
+      logger.info(`Parameters: (none - all values hardcoded in Multi-Action)`);
 
       // Fetch CSRF token before making the POST request (SAP Note 3407120 recommends /api/v1/csrf)
       // Also ensure we use a user-context OAuth token (Multi Action API does NOT support client_credentials).
@@ -658,7 +658,7 @@ export class SACClient {
           name: 'Multi-Action Executions API (SAP Recommended)',
           url: `/api/v1/multiActions/${this.multiActionId}/executions`,
           body: {
-            parameterValues: request.parameters,
+            parameterValues: {},  // No parameters - all values hardcoded in Multi-Action
           },
         },
         {
@@ -667,14 +667,14 @@ export class SACClient {
           body: {
             type: 'MULTIACTION',
             multiActionId: this.multiActionId,
-            parameters: request.parameters,
+            parameters: {},  // No parameters - all values hardcoded in Multi-Action
           },
         },
         {
           name: 'Planning Model Multi-Action Runs (Fallback)',
           url: `/api/v1/dataimport/planningModel/${this.modelId}/multiActions/${this.multiActionId}/runs`,
           body: {
-            parameterValues: request.parameters,
+            parameterValues: {},  // No parameters - all values hardcoded in Multi-Action
           },
         },
       ];
