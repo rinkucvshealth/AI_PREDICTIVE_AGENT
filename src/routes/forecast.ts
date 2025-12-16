@@ -195,4 +195,28 @@ router.post('/test-multiaction-post', async (_req: express.Request, res: express
   }
 });
 
+/**
+ * GET /api/forecast/token-info
+ * Decode the OAuth token to show which user it's authenticated as
+ */
+router.get('/token-info', async (_req: express.Request, res: express.Response) => {
+  try {
+    logger.info('🔍 Fetching token information...');
+    
+    const tokenInfo = await sacClient.getTokenInfo();
+    
+    return res.json({
+      success: true,
+      tokenInfo,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get token info:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get token info',
+      error: error.message,
+    });
+  }
+});
+
 export default router;

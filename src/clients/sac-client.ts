@@ -469,6 +469,63 @@ export class SACClient {
   }
 
   /**
+   * Get token information including user identity
+   * Public version of decodeJWT for diagnostic purposes
+   */
+  async getTokenInfo(): Promise<any> {
+    try {
+      logger.info('🔍 Getting OAuth token information...');
+      
+      // Get a fresh token
+      const token = await this.getAccessToken({ allowClientCredentials: false });
+      
+      if (!token) {
+        return {
+          error: 'No OAuth token available',
+          suggestion: 'Check SAC_REFRESH_TOKEN configuration',
+        };
+      }
+
+      // Decode the JWT token
+      const payload = this.decodeJWT(token);
+      
+      if (!payload) {
+        return {
+          error: 'Failed to decode token',
+          tokenPreview: token.substring(0, 30) + '...',
+        };
+      }
+
+      // Extract user information
+      const userInfo = {
+        username: payload.user_name || payload.email || payload.sub || 'Unknown',
+        email: payload.email || 'N/A',
+        clientId: payload.client_id || payload.azp || 'N/A',
+        scopes: payload.scope ? (Array.isArray(payload.scope) ? payload.scope : payload.scope.split(' ')) : [],
+        issuer: payload.iss || 'N/A',
+        subject: payload.sub || 'N/A',
+        expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : 'N/A',
+        issuedAt: payload.iat ? new Date(payload.iat * 1000).toISOString() : 'N/A',
+        grantType: payload.grant_type || 'N/A',
+        zoneId: payload.zid || 'N/A',
+        origin: payload.origin || 'N/A',
+      };
+
+      logger.info('Token Info:', userInfo);
+      
+      return {
+        success: true,
+        userInfo,
+        tokenPreview: token.substring(0, 30) + '...',
+        fullPayload: payload, // Include full payload for detailed analysis
+      };
+    } catch (error: any) {
+      logger.error('Failed to get token info:', error.message);
+      throw new SACError(`Failed to get token info: ${error.message}`);
+    }
+  }
+
+  /**
    * Analyze token scopes to detect permission issues
    */
   private analyzeTokenScopes(token: string): void {
