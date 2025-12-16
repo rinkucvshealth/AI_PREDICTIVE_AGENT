@@ -12,10 +12,11 @@ export interface ForecastResponse {
   success: boolean;
   summary: string;
   details?: {
-    glAccount: string;
-    forecastPeriod: number;
     versionName: string;
     multiActionStatus: string;
+    executionId?: string;
+    glAccount?: string;
+    forecastPeriod?: number;
     startDate?: string;
     endDate?: string;
   };
@@ -33,9 +34,7 @@ export interface ParsedForecastQuery {
 
 export interface SACMultiActionRequest {
   parameters: {
-    GLAccount: string;
-    ForecastPeriod: number;
-    VersionName: string;
+    VersionToSaveForecast?: string;
     [key: string]: any;
   };
 }
